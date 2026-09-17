@@ -1,0 +1,21 @@
+<Window x:Class="ProxyWin.App.RuleDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Rule" Width="450" Height="440" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Style="{StaticResource {x:Type Window}}">
+  <Grid Margin="16"><Grid.RowDefinitions><RowDefinition /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+    <StackPanel>
+      <TextBlock Text="Rule" FontSize="18" FontWeight="Bold" />
+      <StackPanel Orientation="Horizontal" Margin="0,9,0,4"><TextBlock Text="Destination" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Destination help" ToolTip="IP, CIDR, or * for all non-loopback destinations. For a process-wide rule, set destination and port to *, then choose a process." /></StackPanel><TextBox x:Name="DestinationsBox" MaxLength="8192" ToolTip="IP, CIDR, or *. Separate addresses with commas." />
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,8,0"><TextBlock Text="Port" Style="{StaticResource Label}" /><TextBox x:Name="PortsBox" MaxLength="4096" /></StackPanel>
+        <StackPanel Grid.Column="1"><TextBlock Text="Protocol" Style="{StaticResource Label}" /><ComboBox x:Name="NetworkBox"><ComboBoxItem Content="TCP" /><ComboBoxItem Content="UDP" /><ComboBoxItem Content="TCP + UDP" /></ComboBox></StackPanel>
+      </Grid>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="105" /><ColumnDefinition /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,8,0"><TextBlock Text="Action" Style="{StaticResource Label}" /><ComboBox x:Name="ActionBox" SelectionChanged="ActionChanged"><ComboBoxItem Content="DIRECT" /><ComboBoxItem Content="PROXY" /><ComboBoxItem Content="BLOCK" /></ComboBox></StackPanel>
+        <StackPanel Grid.Column="1"><TextBlock Text="Proxy server" Style="{StaticResource Label}" /><ComboBox x:Name="TargetBox" DisplayMemberPath="Name" SelectedValuePath="Id" /></StackPanel>
+      </Grid>
+      <StackPanel Orientation="Horizontal" Margin="0,9,0,4"><TextBlock Text="Process" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Process help" ToolTip="Select an exact executable name. Blank means all processes; this is not a PID filter. Search text is only for finding a name, not a wildcard process rule." /></StackPanel><ComboBox x:Name="ProcessBox" IsEditable="True" IsTextSearchEnabled="False" StaysOpenOnEdit="True" MaxDropDownHeight="220" DropDownOpened="OpenProcessPicker" ToolTip="Type to search. Select a full executable name or enter one manually." />
+      <CheckBox x:Name="EnabledBox" Content="Enabled" Margin="0,12,0,0" />
+      <TextBlock Text="All conditions must match. First matching rule wins." FontSize="10" Foreground="{StaticResource Muted}" Margin="0,9,0,0" />
+    </StackPanel>
+    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="Cancel" IsCancel="True" Margin="0,0,6,0" /><Button Content="Save" Style="{StaticResource Primary}" IsDefault="True" Click="Save" /></StackPanel>
+  </Grid>
+</Window>

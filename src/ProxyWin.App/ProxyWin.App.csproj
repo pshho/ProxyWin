@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>ProxyWin</AssemblyName>
+    <Version>0.5.0</Version>
+    <ApplicationIcon>Assets/ProxyWin.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets/ProxyWin.ico" />
+    <Resource Include="Assets/ProxyWin.png" />
+    <ProjectReference Include="../ProxyWin.Core/ProxyWin.Core.csproj" />
+    <ProjectReference Include="../ProxyWin.Windows/ProxyWin.Windows.csproj" />
+    <Content Include="../../driver/*" Link="driver/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Exclude="../../driver/README.md" />
+  </ItemGroup>
+</Project>

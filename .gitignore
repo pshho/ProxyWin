@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+artifacts/
+.vs/
+driver/*.dll
+driver/*.sys
+*.user
+.agents/
+.codex/
+.env
+.env.*
+*.pfx
+*.p12
+profile.dat

@@ -1,0 +1,59 @@
+<Window x:Class="ProxyWin.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ProxyWin" Width="1060" Height="780" MinWidth="920" MinHeight="680" WindowStartupLocation="CenterScreen" Closing="OnClosing" Style="{StaticResource {x:Type Window}}">
+  <Grid Margin="14">
+    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" MinHeight="100" /><RowDefinition Height="7" /><RowDefinition Height="1.6*" MinHeight="185" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+    <DockPanel Margin="0,0,0,10">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right"><TextBlock x:Name="StatusText" Text="● Stopped" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,12,0" /><Button x:Name="ToggleButton" Content="▶ Apply" Style="{StaticResource Primary}" Click="ToggleEngine" MinWidth="110" /></StackPanel>
+      <StackPanel Orientation="Horizontal"><Image Source="/Assets/ProxyWin.png" Width="24" Height="24" Margin="0,0,7,0" /><TextBlock Text="ProxyWin" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" /></StackPanel>
+    </DockPanel>
+    <Border Grid.Row="1" x:Name="EditorPanel" Style="{StaticResource Card}" Margin="0,0,0,9">
+      <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <DockPanel Margin="0,0,0,9">
+          <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" Margin="8,0,0,0"><Button Content="+ Server" Click="AddProxy" Margin="0,0,4,0" /><Button Content="Edit" Click="EditProxy" Margin="0,0,4,0" /><Button Content="Remove" Click="DeleteProxy" /></StackPanel>
+          <TextBlock Text="Proxy server" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
+          <ComboBox x:Name="ProxyBox" DisplayMemberPath="Summary" SelectedValuePath="Id" SelectionChanged="SelectionChanged" ToolTip="Server used by PROXY rules." />
+        </DockPanel>
+        <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="100" /><ColumnDefinition Width="100" /><ColumnDefinition Width="95" /><ColumnDefinition Width="185" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,4"><TextBlock Text="Destination" FontSize="11" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Destination help" ToolTip="Use an IP, CIDR, or * for all non-loopback destinations. Combine * with a process name to make a process-wide rule. Domains and partial IP patterns are not supported." /></StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,4"><TextBlock Text="Port" FontSize="11" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Port help" ToolTip="Use * for all ports, or a list such as 443, 8000-9000." /></StackPanel>
+          <TextBlock Grid.Column="2" Text="Protocol" FontSize="11" Margin="0,0,0,4" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="0,0,0,4"><TextBlock Text="Action" FontSize="11" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Action help" ToolTip="First match wins. DIRECT passes traffic, PROXY uses the selected server, BLOCK drops packets. PROXY affects new TCP connections. HTTP proxies support TCP only." /></StackPanel>
+          <StackPanel Grid.Column="4" Orientation="Horizontal" Margin="0,0,0,4"><TextBlock Text="Process" FontSize="11" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Process help" ToolTip="Search, then select an exact executable name. Blank means all processes. Names apply to all instances, not a single PID. Destination * and port * cover that process's non-loopback traffic. Broad rules inspect more connections." /></StackPanel>
+          <TextBox Grid.Row="1" x:Name="TargetBox" Margin="0,0,6,0" MaxLength="8192" ToolTip="IP, CIDR, or * for any destination." />
+          <TextBox Grid.Row="1" Grid.Column="1" x:Name="PortBox" Text="*" Margin="0,0,6,0" MaxLength="4096" ToolTip="443, 8000-9000" />
+          <ComboBox Grid.Row="1" Grid.Column="2" x:Name="ProtocolBox" SelectedIndex="0" Margin="0,0,6,0"><ComboBoxItem Content="TCP" /><ComboBoxItem Content="UDP" /><ComboBoxItem Content="TCP + UDP" /></ComboBox>
+          <ComboBox Grid.Row="1" Grid.Column="3" x:Name="ActionBox" SelectedIndex="1" SelectionChanged="ActionChanged" Margin="0,0,6,0"><ComboBoxItem Content="DIRECT" /><ComboBoxItem Content="PROXY" /><ComboBoxItem Content="BLOCK" /></ComboBox>
+          <ComboBox Grid.Row="1" Grid.Column="4" x:Name="ProcessBox" IsEditable="True" IsTextSearchEnabled="False" StaysOpenOnEdit="True" MaxDropDownHeight="260" DropDownOpened="OpenProcessPicker" Margin="0,0,6,0" ToolTip="Search by name, then select an executable. Blank = all processes." />
+          <Button Grid.Row="1" Grid.Column="5" Content="+ Rule" Style="{StaticResource Primary}" Click="AddTarget" />
+        </Grid>
+      </Grid>
+    </Border>
+    <Border Grid.Row="2" x:Name="RulePanel" Style="{StaticResource Card}" Padding="0"><Grid>
+      <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition /></Grid.RowDefinitions>
+      <DockPanel Margin="10,7"><TextBlock x:Name="RuleCount" Text="Rules 0" FontWeight="SemiBold" VerticalAlignment="Center" /><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="↑" Click="MoveRuleUp" Padding="8,3" Margin="0,0,4,0" ToolTip="Move up" /><Button Content="↓" Click="MoveRuleDown" Padding="8,3" Margin="0,0,9,0" ToolTip="Move down" /><Button Content="Edit" Click="EditRule" Padding="9,3" Margin="0,0,4,0" /><Button Content="Remove" Click="DeleteRule" Padding="9,3" /></StackPanel></DockPanel>
+      <DataGrid x:Name="RulesGrid" Grid.Row="1" MouseDoubleClick="EditRule"><DataGrid.Columns>
+        <DataGridTemplateColumn Header="On" Width="44"><DataGridTemplateColumn.CellTemplate><DataTemplate><CheckBox IsChecked="{Binding Enabled, Mode=OneWay}" Click="ToggleRule" VerticalAlignment="Center" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+        <DataGridTextColumn Header="Action" Binding="{Binding ActionLabel}" Width="72" /><DataGridTextColumn Header="Destination" Binding="{Binding Destinations}" Width="2*" /><DataGridTextColumn Header="Port" Binding="{Binding Ports}" Width="*" /><DataGridTextColumn Header="Protocol" Binding="{Binding NetworkLabel}" Width="90" /><DataGridTextColumn Header="Proxy" Binding="{Binding TargetName}" Width="*" /><DataGridTextColumn Header="Process" Binding="{Binding ProcessLabel}" Width="*" />
+      </DataGrid.Columns></DataGrid>
+      <TextBlock x:Name="RuleEmpty" Grid.Row="1" Text="Add a rule above, or select a connection below." TextAlignment="Center" Foreground="{StaticResource Muted}" VerticalAlignment="Center" HorizontalAlignment="Center" IsHitTestVisible="False" />
+    </Grid></Border>
+    <GridSplitter Grid.Row="3" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" Background="#DFE6F0" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" />
+    <Border Grid.Row="4" Style="{StaticResource Card}" Padding="0"><Grid>
+      <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition /></Grid.RowDefinitions>
+      <DockPanel Margin="10,8,10,4">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button x:Name="ObserveButton" Content="Monitor" Click="ToggleObservation" Margin="0,0,4,0" /><Button Content="Clear" Click="ClearObservations" /></StackPanel>
+        <TextBlock Text="Connections" FontWeight="Bold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" Margin="5,0,9,0" AutomationProperties.Name="Monitor help" ToolTip="Only new outbound TCP/UDP flows appear after monitoring starts. Existing flows and failed TCP attempts may be absent. No packet contents are recorded. The newest 1,000 rows stay in memory." />
+        <Grid Width="175" HorizontalAlignment="Left"><TextBox x:Name="ObservationFilter" TextChanged="FilterObservations" ToolTip="Filter by process, PID, IP or port." /><TextBlock Text="Process / IP / port" FontSize="10" Foreground="{StaticResource Muted}" Margin="7,0" VerticalAlignment="Center" IsHitTestVisible="False"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=ObservationFilter}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></Grid>
+        <CheckBox x:Name="OnlyObservedProgram" Content="This process" IsChecked="True" Checked="ObservationScopeChanged" Unchecked="ObservationScopeChanged" VerticalAlignment="Center" Margin="12,0" ToolTip="Matches the executable name, not PID. Includes every instance with that name." />
+        <Button x:Name="AddObservedButton" Content="Add rule" Click="AddObservedRule" IsEnabled="False" HorizontalAlignment="Left" />
+      </DockPanel>
+      <DockPanel Grid.Row="1" Margin="10,0,10,7"><TextBlock Text="New connections only · No packet contents" FontSize="10" Foreground="{StaticResource Muted}" /><TextBlock x:Name="ObserveStatus" Text="Stopped · 0 / 1000 rows" HorizontalAlignment="Right" FontSize="10" Foreground="{StaticResource Muted}" /></DockPanel>
+      <DataGrid Grid.Row="2" x:Name="ObservationGrid" SelectionChanged="SelectionChanged" CanUserSortColumns="True"><DataGrid.Columns>
+        <DataGridTextColumn Header="Time" Binding="{Binding TimeLabel}" SortMemberPath="Time" Width="90" /><DataGridTextColumn Header="Process" Binding="{Binding ProcessLabel}" Width="150" /><DataGridTextColumn Header="PID" Binding="{Binding ProcessId}" Width="58" /><DataGridTextColumn Header="Type" Binding="{Binding NetworkLabel}" Width="48" /><DataGridTextColumn Header="Destination" Binding="{Binding Destination}" Width="*" /><DataGridTextColumn Header="Port" Binding="{Binding RemotePort}" Width="58" /><DataGridTextColumn Header="Source" Binding="{Binding LocalEndpoint}" Width="*" /><DataGridTextColumn Header="Scope" Binding="{Binding ScopeLabel}" Width="64" />
+      </DataGrid.Columns></DataGrid>
+    </Grid></Border>
+    <Expander Grid.Row="5" Header="Events" Margin="0,7,0,0"><DockPanel Margin="0,5,0,0"><Button Content="Clear" Click="ClearLogs" DockPanel.Dock="Right" VerticalAlignment="Top" Margin="7,0,0,0" /><ListBox x:Name="LogList" Height="80" FontFamily="Consolas, Malgun Gothic" FontSize="11" BorderBrush="#DFE5EF" VirtualizingPanel.IsVirtualizing="True" /></DockPanel></Expander>
+    <DockPanel Grid.Row="6" Margin="0,8,0,0"><TextBlock x:Name="FooterText" Foreground="{StaticResource Muted}" FontSize="10" /><TextBlock x:Name="StatsText" Text="TCP 0 · UDP 0" HorizontalAlignment="Right" Foreground="{StaticResource Muted}" FontSize="10" /></DockPanel>
+  </Grid>
+</Window>

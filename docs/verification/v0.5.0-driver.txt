@@ -1,0 +1,5 @@
+NOT RUN: Windows UAC elevation was cancelled on 2026-09-17.
+scripts/Test-Driver.ps1 failed at Start-Process -Verb RunAs before the test process started.
+No administrator regression result is available for version 0.5.
+The suite includes 16 non-elevated groups plus 4 driver groups (20 total).
+Run scripts/Test-Driver.ps1 after building the test project to complete driver verification.
