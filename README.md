@@ -58,6 +58,8 @@ Hover over or click a round **!** for field help. Settings save automatically.
 
 Documentation IPs above are examples. Replace them with your intended destinations. Domains and partial IP patterns such as `192.168.*.*` are not supported; use CIDR for address ranges. Loopback/self traffic remains excluded.
 
+Destinations and ports both accept comma-separated lists, with optional spaces. For example, Destinations `203.0.113.10, 198.51.100.20` and Ports `80, 443, 8000-9000` create **one rule** matching either IP at any listed port/range. The lists are not paired by position. Use separate rules for specific IP-to-port pairs. Use `*` by itself, not mixed with list entries.
+
 ### Process-wide rule
 
 To route Chrome's non-loopback TCP and UDP traffic through a SOCKS5 server:
@@ -98,6 +100,8 @@ BLOCK may appear as a timeout to the client. It does not undo data already recei
 The generated rule uses that connection's exact destination, port and protocol. To cover the process's other destinations, edit the rule and set Destination to `*`. Identical rules are selected instead of duplicated; disabled identical rules are re-enabled.
 
 Monitoring uses read-only WinDivert FLOW metadata. It records no packet contents, HTTP bodies or credentials. Only new flows appear; pre-existing connections and failed TCP attempts may be absent. The newest 1,000 rows remain in memory, with a bounded 2,048-entry queue. Overload can omit records. **Stop monitor** only stops observation.
+
+The **Filter: process / IP / port** box searches the displayed connection rows using a single text term (also matching PID or protocol). It does not restrict which flows the monitor collects, and it does not change routing rules. **This process** affects the rule created from a selected row, not the monitoring scope.
 
 ## TCP, UDP and Burp
 

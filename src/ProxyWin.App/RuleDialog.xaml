@@ -3,9 +3,9 @@
   <Grid Margin="16"><Grid.RowDefinitions><RowDefinition /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
     <StackPanel>
       <TextBlock Text="Rule" FontSize="18" FontWeight="Bold" />
-      <StackPanel Orientation="Horizontal" Margin="0,9,0,4"><TextBlock Text="Destination" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Destination help" ToolTip="IP, CIDR, or * for all non-loopback destinations. For a process-wide rule, set destination and port to *, then choose a process." /></StackPanel><TextBox x:Name="DestinationsBox" MaxLength="8192" ToolTip="IP, CIDR, or *. Separate addresses with commas." />
+      <StackPanel Orientation="Horizontal" Margin="0,9,0,4"><TextBlock Text="Destinations" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Destination help" ToolTip="Separate IPs or CIDRs with commas. Any listed destination can match any listed port. For a process-wide rule, use * alone for destinations and ports, then select a process." /></StackPanel><TextBox x:Name="DestinationsBox" MaxLength="8192" ToolTip="IP, CIDR, or *. Separate addresses with commas." />
       <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
-        <StackPanel Margin="0,0,8,0"><TextBlock Text="Port" Style="{StaticResource Label}" /><TextBox x:Name="PortsBox" MaxLength="4096" /></StackPanel>
+        <StackPanel Margin="0,0,8,0"><StackPanel Orientation="Horizontal" Margin="0,9,0,4"><TextBlock Text="Ports" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Ports help" ToolTip="Separate ports or ranges with commas: 80, 443, 8000-9000. Use * alone for all ports." /></StackPanel><TextBox x:Name="PortsBox" MaxLength="4096" ToolTip="80, 443, 8000-9000" /></StackPanel>
         <StackPanel Grid.Column="1"><TextBlock Text="Protocol" Style="{StaticResource Label}" /><ComboBox x:Name="NetworkBox"><ComboBoxItem Content="TCP" /><ComboBoxItem Content="UDP" /><ComboBoxItem Content="TCP + UDP" /></ComboBox></StackPanel>
       </Grid>
       <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="105" /><ColumnDefinition /></Grid.ColumnDefinitions>
@@ -16,6 +16,6 @@
       <CheckBox x:Name="EnabledBox" Content="Enabled" Margin="0,12,0,0" />
       <TextBlock Text="All conditions must match. First matching rule wins." FontSize="10" Foreground="{StaticResource Muted}" Margin="0,9,0,0" />
     </StackPanel>
-    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="Cancel" IsCancel="True" Margin="0,0,6,0" /><Button Content="Save" Style="{StaticResource Primary}" IsDefault="True" Click="Save" /></StackPanel>
+    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="Cancel" IsCancel="True" Margin="0,0,6,0" /><Button x:Name="SaveButton" Content="Save" Style="{StaticResource Primary}" IsDefault="True" Click="Save" /></StackPanel>
   </Grid>
 </Window>

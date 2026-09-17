@@ -40,7 +40,7 @@ public static class RuleParser
         {
             var pair = token.Split('-');
             if (pair.Length > 2 || !int.TryParse(pair[0], out var start) || start is < 1 or > 65535)
-                throw new FormatException("Use ports 1–65535, ranges such as 8000-9000, or *.");
+                throw new FormatException("Use ports 1–65535 or ranges, separated by commas (80, 443, 8000-9000), or * alone.");
             var end = start;
             if (pair.Length == 2 && (!int.TryParse(pair[1], out end) || end < start || end > 65535))
                 throw new FormatException("Invalid port range.");

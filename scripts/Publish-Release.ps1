@@ -32,8 +32,14 @@ if ($LASTEXITCODE -eq 0) {
     Invoke-Gh -Arguments @('api', '--method', 'POST', "repos/$Repository/git/refs", '-f', "ref=refs/tags/$tag", '-f', "sha=$Commit") | Out-Null
 }
 # Listing distinguishes an absent release from an API/network error.
-$releaseJson = Invoke-Gh -Arguments @('api', '--paginate', '--slurp', "repos/$Repository/releases?per_page=100", '--jq', '[.[][] | {tag_name, draft, html_url}]')
-$existing = @(($releaseJson -join [Environment]::NewLine | ConvertFrom-Json) | Where-Object { $_.tag_name -ceq $tag })
+$releaseJson = Invoke-Gh -Arguments @('api', '--paginate', '--slurp', "repos/$Repository/releases?per_page=100")
+# gh cannot combine --slurp with --jq. Flatten its array of pages locally.
+$pages = ConvertFrom-Json -InputObject ($releaseJson -join [Environment]::NewLine)
+$existing = @(foreach ($page in $pages) {
+    foreach ($release in $page) {
+        if ($release.tag_name -ceq $tag) { $release }
+    }
+})
 if ($existing.Count -gt 0 -and -not $existing[0].draft) {
     Write-Host "Already published: $($existing[0].html_url)"
     return
