@@ -302,6 +302,11 @@ public partial class MainWindow : Window
         AddTarget(this, new RoutedEventArgs());
         if (profile.Rules[^1].Destinations != "*" || profile.Rules[^1].ProcessName != "worker.exe") throw new InvalidOperationException("Process-only wildcard rule failed.");
         ProcessBox.Text = ""; ProtocolBox.SelectedIndex = 0;
+        TargetBox.Text = "203.0.113.10, 198.51.100.20"; PortBox.Text = "80, 443, 8000-9000";
+        var countBeforeLists = profile.Rules.Count;
+        AddTarget(this, new RoutedEventArgs());
+        if (profile.Rules.Count != countBeforeLists + 1 || profile.Rules[^1].Destinations != "203.0.113.10, 198.51.100.20"
+            || profile.Rules[^1].Ports != "80, 443, 8000-9000") throw new InvalidOperationException("Comma-separated quick-add failed.");
         RulesGrid.SelectedIndex = profile.Rules.Count - 1; RulesGrid.ScrollIntoView(RulesGrid.SelectedItem);
     }
     private async void OnClosing(object? sender, CancelEventArgs e)

@@ -125,6 +125,34 @@ await Test("IP/CIDR and port boundaries", () => Sync(() =>
     foreach (var bad in new[] { "", "0", "65536", "9000-8000", "80,", "* ,443" }) Reject(() => RuleParser.Ports(bad));
     Assert(RuleParser.Ports("1,443,8000-9000,65535").Length == 4, "ports");
 }));
+await Test("Comma-separated destinations and ports form one rule with all combinations", () => Sync(() =>
+{
+    var profile = Example(); var rule = profile.Rules[0];
+    rule.Destinations = "203.0.113.10, 198.51.100.20, 2001:db8:1::/64";
+    rule.Ports = "80, 443, 8000-8002";
+    rule.ProcessName = "client.exe";
+    var plan = new CapturePlan(profile);
+    var filter = plan.Filter(23456, 23457);
+    DivertEngine.CheckFilter(filter);
+    foreach (var text in new[] { "203.0.113.10", "198.51.100.20", "2001:db8:1::123" })
+    {
+        var destination = IPAddress.Parse(text);
+        var local = IPAddress.Parse(destination.AddressFamily == AddressFamily.InterNetwork ? "192.0.2.1" : "2001:db8:2::1");
+        foreach (var port in new[] { 80, 443, 8000, 8001, 8002 })
+        {
+            Assert(plan.Match(destination, port, false, "client") is not null, "each destination / TCP port combination");
+            Assert(plan.Match(destination, port, true, "client") is not null, "each destination / UDP port combination");
+            Assert(plan.Match(destination, port, true, "other") is null, "process restriction retained");
+            var packet = IpPacket.UdpReply(new FlowKey(destination, port, local, 51000, true), "list"u8);
+            Assert(WinDivertNative.Evaluate(filter, packet), "native filter includes every combination");
+        }
+        Assert(plan.Match(destination, 81, true, "client") is null, "unlisted port");
+        Assert(plan.Match(destination, 8003, false, "client") is null, "range boundary");
+    }
+    Assert(plan.Match(IPAddress.Parse("203.0.113.11"), 80, true, "client") is null, "unlisted address");
+    var copy = System.Text.Json.JsonSerializer.Deserialize<Profile>(System.Text.Json.JsonSerializer.Serialize(profile))!;
+    Assert(copy.Rules.Count == 1 && copy.Rules[0].Destinations == rule.Destinations && copy.Rules[0].Ports == rule.Ports, "lists persist as one rule");
+}));
 await Test("Selective IP policy, first match and process restrictions", () => Sync(() =>
 {
     var profile = Example(); var rule = profile.Rules[0];

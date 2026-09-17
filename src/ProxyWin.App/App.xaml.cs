@@ -6,6 +6,7 @@ using System.Windows.Threading;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Globalization;
+using ProxyWin.Core;
 using ProxyWin.Windows;
 
 namespace ProxyWin.App;
@@ -66,7 +67,18 @@ public partial class App : Application
                 await rule.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
                 Capture(rule, Path.Combine(output, "rule-editor.png"));
                 rule.Close();
-                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: English compact/minimum window and editors, DIRECT/PROXY/BLOCK and process-wide wildcard quick-add, rule order/toggle, observation-to-rule, duplicate prevention, substring process search preserving manual names, and loaded app icon; no driver opened; no user profile modified.");
+                var edited = new RuleDialog(new RoutingRule { Destinations = "203.0.113.10", Ports = "80", Action = RuleAction.Direct }, []) { Owner = smoke };
+                edited.ContentRendered += async (_, _) =>
+                {
+                    ((TextBox)edited.FindName("DestinationsBox")).Text = "203.0.113.10, 198.51.100.20";
+                    ((TextBox)edited.FindName("PortsBox")).Text = "80, 443, 8000-9000";
+                    await edited.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                    Capture(edited, Path.Combine(output, "rule-editor-multiple.png"));
+                    ((Button)edited.FindName("SaveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                };
+                if (edited.ShowDialog() != true || edited.Result?.Destinations != "203.0.113.10, 198.51.100.20"
+                    || edited.Result.Ports != "80, 443, 8000-9000") throw new InvalidOperationException("Comma-separated rule editing failed.");
+                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: English compact/minimum window and editors, comma-separated rule addition and editing, DIRECT/PROXY/BLOCK and process-wide wildcard quick-add, rule order/toggle, observation-to-rule, duplicate prevention, substring process search preserving manual names, and loaded app icon; no driver opened; no user profile modified.");
                 Shutdown(0);
             }
             catch (Exception ex) { File.WriteAllText(Path.Combine(output, "result.txt"), ex.ToString()); Shutdown(1); }
