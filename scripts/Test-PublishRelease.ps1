@@ -6,15 +6,19 @@ function gh {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Command)
     $global:proxyWinPublishState.Calls.Add(($Command -join '|'))
     $global:LASTEXITCODE = 0
+    if ($Command -contains '--slurp' -and $Command -contains '--jq') {
+        $global:LASTEXITCODE = 1
+        return
+    }
     if ($Command -contains 'repos/test/ProxyWin/git/ref/heads/main') {
         if ($global:proxyWinPublishState.Scenario -eq 'ApiFailure') { $global:LASTEXITCODE = 1; return }
         if ($global:proxyWinPublishState.Scenario -eq 'Stale') { return ('b' * 40) }
         return $global:proxyWinPublishState.Commit
     }
     if ($Command -contains 'repos/test/ProxyWin/releases?per_page=100') {
-        if ($global:proxyWinPublishState.Scenario -eq 'Published') { return '[{"tag_name":"v0.5.1","draft":false,"html_url":"https://example.invalid/release"}]' }
-        if ($global:proxyWinPublishState.Scenario -eq 'Draft') { return '[{"tag_name":"v0.5.1","draft":true,"html_url":"https://example.invalid/release"}]' }
-        return '[]'
+        if ($global:proxyWinPublishState.Scenario -eq 'Published') { return '[[{"tag_name":"v0.5.0","draft":false}],[{"tag_name":"v0.5.1","draft":false,"html_url":"https://example.invalid/release"}]]' }
+        if ($global:proxyWinPublishState.Scenario -eq 'Draft') { return '[[{"tag_name":"v0.5.0","draft":false}],[{"tag_name":"v0.5.1","draft":true,"html_url":"https://example.invalid/release"}]]' }
+        return '[[]]'
     }
     if ($Command[0] -eq 'release' -and $Command[1] -eq 'upload' -and $global:proxyWinPublishState.Scenario -eq 'UploadFailure') { $global:LASTEXITCODE = 1 }
 }
