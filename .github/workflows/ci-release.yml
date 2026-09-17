@@ -1,0 +1,106 @@
+name: CI and release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize main runs so two builds cannot allocate the same next version.
+concurrency:
+  group: ci-release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    name: Windows build and tests
+    runs-on: windows-2025
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Test release version selection
+        run: ./scripts/Test-ReleaseVersion.ps1
+      - name: Test publishing failures and retries
+        run: ./scripts/Test-PublishRelease.ps1
+      - name: Select release version
+        id: version
+        run: |
+          . ./scripts/Release-Version.ps1
+          $tags = @(git tag --list)
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read tags.' }
+          $headTags = @(git tag --points-at HEAD)
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read HEAD tags.' }
+          [xml]$project = Get-Content src/ProxyWin.App/ProxyWin.App.csproj -Raw
+          $version = Get-ReleaseVersion -Tags $tags -HeadTags $headTags -BaseVersion $project.Project.PropertyGroup.Version
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Verify driver, run regression tests and publish
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/Build.ps1 -Version $env:RELEASE_VERSION
+      - name: Check published GUI
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          dotnet "artifacts/ProxyWin-$env:RELEASE_VERSION-win-x64/ProxyWin.dll" --smoke-test "$PWD/artifacts/ci/gui"
+          if ($LASTEXITCODE -ne 0) { throw 'Published GUI smoke test failed.' }
+      - name: Package verified binaries
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/Package-Release.ps1 -Version $env:RELEASE_VERSION
+      - name: Save verified release package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-package
+          path: artifacts/release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Save test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-reports
+          path: artifacts/ci/
+          if-no-files-found: warn
+          retention-days: 14
+
+  release:
+    name: Publish next release
+    needs: ci
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: windows-2025
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-package
+          path: artifacts/release/
+      - name: Tag and publish tested commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.ci.outputs.version }}
+        run: ./scripts/Publish-Release.ps1 -Version $env:RELEASE_VERSION -Commit $env:GITHUB_SHA -Repository $env:GITHUB_REPOSITORY

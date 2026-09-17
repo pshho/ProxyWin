@@ -4,7 +4,7 @@
 
 ProxyWin uses WinDivert 2.2.2 to apply ordered **DIRECT**, **PROXY**, and **BLOCK** rules to outbound TCP/UDP traffic. No virtual adapter or system route changes are needed.
 
-**Current release: [0.5.0](https://github.com/pshho/ProxyWin/releases/tag/v0.5.0)** · [Download ZIP](https://github.com/pshho/ProxyWin/releases/download/v0.5.0/ProxyWin-0.5.0-win-x64.zip) · [SHA-256](https://github.com/pshho/ProxyWin/releases/download/v0.5.0/ProxyWin-0.5.0-win-x64.zip.sha256)
+**[Download the latest release](https://github.com/pshho/ProxyWin/releases/latest)** — Windows x64 ZIP and SHA-256 checksum · [CI status](https://github.com/pshho/ProxyWin/actions/workflows/ci-release.yml)
 
 ![ProxyWin English GUI with sample rules and connections](docs/images/main.png)
 
@@ -35,7 +35,7 @@ To compare the download with the published checksum:
 Get-FileHash .\ProxyWin-0.5.0-win-x64.zip -Algorithm SHA256
 ```
 
-**Verification status:** 16/16 non-elevated regression groups and published GUI/caret checks passed. The 0.5.0 administrator driver suite **was not run because UAC approval was cancelled**. Actual wildcard interception remains unverified. See [VERIFICATION.md](VERIFICATION.md) before relying on the new routing behavior.
+**Verification scope:** CI checks the build, local regressions and published GUI. Each automated ZIP includes its own `CI-VERIFICATION.md`. Historical 0.5.0 checks passed 16/16 local regression groups and GUI/caret checks, but its administrator suite **was not run because UAC approval was cancelled**. Hosted CI does not establish actual WinDivert interception behavior. See [VERIFICATION.md](VERIFICATION.md) for the historical local evidence.
 
 ## Quick start
 
@@ -141,11 +141,14 @@ cd ProxyWin
 ./scripts/Build.ps1
 ```
 
-The script downloads and verifies the official WinDivert files, runs non-elevated tests, and publishes to `artifacts/ProxyWin-0.5.0-win-x64`.
+The script downloads and verifies the official WinDivert files, runs non-elevated tests, and publishes to `artifacts/ProxyWin-<version>-win-x64`. The default version comes from the application project; CI supplies the next release version using `-Version`.
 
 ```powershell
 # Optional framework-dependent publication
 ./scripts/Build.ps1 -FrameworkDependent
+
+# Explicit local package version (also injected into the executable)
+./scripts/Build.ps1 -Version 0.5.1
 
 # Local regression suite
 dotnet run --project tests/ProxyWin.Tests/ProxyWin.Tests.csproj -c Release
@@ -161,6 +164,25 @@ dotnet src/ProxyWin.App/bin/Release/net10.0-windows/win-x64/ProxyWin.dll --picke
 Driver tests generate traffic only to documentation addresses `203.0.113.10` / `203.0.113.11` at declared ports and local fake proxies. Lower-priority test filters consume DIRECT test traffic. Wildcard tests select TCP/UDP 7446 and the unique test executable; fragments are additionally captured. Observation fixtures are restricted to test PIDs. Tests do not change system routes.
 
 Do not change the global PowerShell execution policy just to run the scripts. Where necessary, use a reviewed, process-local policy exception.
+
+## Automatic CI and releases
+
+The [CI and release workflow](.github/workflows/ci-release.yml) runs on PRs targeting `main`, pushes to `main`, and manual workflow dispatch.
+
+1. Run release-version and publisher failure/retry tests.
+2. Verify WinDivert hashes and signature, run local regression tests, and build a self-contained Windows x64 application.
+3. Run the published GUI smoke test and package the verified binaries with a SHA-256 checksum and current CI report.
+4. **Only for a successful main run**, create the next tag and publish a GitHub Release containing that exact ZIP and checksum.
+
+Starting from `v0.5.0`, versions advance to `v0.5.1`, `v0.5.2`, and so on. Version sorting is numeric. Tags, archive names and the application assembly use the same version; CI does not commit version bumps back to main. To start a new minor/major series, raise the project's base Version above the latest tag.
+
+PRs and non-main manual runs cannot publish. Builds have read-only repository access; only the main release job gets contents-write permission through the automatic `GITHUB_TOKEN`. No personal access token or additional secret is needed. Official actions are pinned to commit SHAs.
+
+Main runs are serialized. A run whose commit is no longer main is skipped for publication; GitHub concurrency may coalesce queued pushes. Re-running a tagged commit reuses its version, resumes an unfinished draft upload, and leaves an already published release unchanged. A failed build creates no tag/release; a failure during publication can leave a tag or draft for a later retry. ZIPs are published only after both files upload successfully.
+
+To retry publication, use **Actions → CI and release → Run workflow → main**, or re-run the failed workflow. Branch merges remain a separate review decision; this workflow does not auto-merge PRs.
+
+Hosted CI does **not** open the WinDivert driver or run the keyboard-focus-dependent caret test. Those require a suitable interactive Windows environment and remain separate from the CI pass. See [GitHub's workflow permission model](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions) for the read/build and write/release separation.
 
 ## Source layout
 
