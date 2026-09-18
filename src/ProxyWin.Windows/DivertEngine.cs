@@ -208,7 +208,7 @@ public sealed class DivertEngine : IAsyncDisposable
             packet.Rewrite(bytes, flow.Key.RemoteAddress, flow.Key.RemotePort, flow.Key.LocalAddress, flow.Key.LocalPort);
             address.Inbound(); return 2;
         }
-        if (state.Bypass.Contains(key.Udp, key.LocalPort)) return 1;
+        if (state.Bypass.Contains(key.Udp, key.LocalPort) || ApplicationConnection.Bypass.Contains(key.Udp, key.LocalPort)) return 1;
         var syn = packet.Tcp && (bytes[packet.TransportOffset + 13] & 0x12) == 0x02;
         if (packet.Tcp && state.Flows.Find(key) is { } existing && (!syn || existing.Sequence == BinaryPrimitives.ReadUInt32BigEndian(bytes[(packet.TransportOffset + 4)..])))
         {

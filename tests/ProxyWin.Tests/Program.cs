@@ -102,7 +102,7 @@ if (clientArgs is ["--client", var protocol, var ip, var portText, var expected,
 }
 
 var failures = 0; var tests = 0;
-using var watchdog = args.Contains("--driver") ? new Timer(_ => { Console.WriteLine("FAIL driver test watchdog expired; terminating the test host to release all driver handles."); Environment.Exit(124); }, null, TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan) : null;
+using var watchdog = args.Contains("--driver") || args.Contains("--driver-update") ? new Timer(_ => { Console.WriteLine("FAIL driver test watchdog expired; terminating the test host to release all driver handles."); Environment.Exit(124); }, null, TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan) : null;
 void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }
 void Reject(Action action) { try { action(); } catch (FormatException) { return; } throw new Exception("Expected validation rejection"); }
 async Task Test(string name, Func<Task> action)
@@ -120,6 +120,7 @@ Profile Example() => new()
 
 await Test("Domain destination resolution, mixed IPs, IDN, failures and cancellation", FeatureTests.Destinations);
 await Test("Update versions, trusted release links and HTTP failure handling", FeatureTests.Updates);
+await Test("Update TCP socket ownership, IPv4/IPv6, disposal and failed-connect cleanup", ApplicationConnectionTests.Lifetime);
 await Test("HTTP CONNECT status retained without response bodies or credentials", HttpFailureTests.StatusCodes);
 
 await Test("IP/CIDR and port boundaries", () => Sync(() =>
@@ -423,6 +424,43 @@ if (args.Contains("--network-features"))
     });
 }
 
+if (args.Contains("--driver") || args.Contains("--driver-update"))
+{
+    await Test("Active BLOCK exempts only managed update TCP sockets across Apply/Stop", async () =>
+    {
+        var target = IPAddress.Parse("203.0.113.10"); const int port = 7447;
+        for (var cycle = 0; cycle < 2; cycle++)
+        {
+            using var sink = WinDivertNative.Open("outbound and ip.DstAddr == 203.0.113.10 and tcp.DstPort == 7447", -100);
+            await using var engine = new DivertEngine();
+            await engine.StartAsync(new Profile { Rules = [new RoutingRule { Destinations = target.ToString(), Ports = port.ToString(), Action = RuleAction.Block }] });
+            async Task Attempt(bool managed)
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+                try
+                {
+                    if (managed) { using var stream = await ApplicationConnection.ConnectAsync(new DnsEndPoint(target.ToString(), port), timeout.Token); }
+                    else { using var socket = new TcpClient(); await socket.ConnectAsync(target, port, timeout.Token); }
+                    throw new Exception("Fixture sink must not complete TCP handshakes");
+                }
+                catch (OperationCanceledException) when (timeout.IsCancellationRequested) { }
+            }
+            await Attempt(false); await Task.Delay(50);
+            var before = engine.Statistics.Blocked;
+            Assert(before > 0, "ordinary TCP connection is blocked");
+            await Attempt(true); await Task.Delay(50);
+            Assert(engine.Statistics.Blocked == before, "managed updater TCP must not enter user BLOCK rules");
+            Assert(WinDivertNative.WinDivertShutdown(sink, WinDivertNative.ShutdownReceive), "finish scoped sink");
+            var passed = ReadSink(sink);
+            Assert(passed is not null && IpPacket.TryParse(passed, out var packet) && packet.Tcp && packet.Key(passed).RemotePort == port, "managed TCP reached the lower-priority sink unchanged");
+            await Attempt(false);
+            Assert(engine.Statistics.Blocked > before, "ordinary TCP remains blocked after updater cleanup");
+            await engine.StopAsync();
+            Console.WriteLine($"  Cycle {cycle + 1}: updater passed, other TCP blocked; rules stopped normally.");
+        }
+    });
+}
+
 if (args.Contains("--driver"))
 {
     await Test("Actual wildcard destination with process-specific PROXY/BLOCK and nonmatching-process DIRECT", async () =>
@@ -577,7 +615,8 @@ if (args.Contains("--driver"))
         await engine.StartAsync(profile); await RunClient("tcp", 443, "socks:ping", 1); await engine.StopAsync();
     });
 }
-else Console.WriteLine("SKIP actual driver interception (pass --driver from an elevated test host)");
+else if (!args.Contains("--driver-update")) Console.WriteLine("SKIP actual driver interception (pass --driver from an elevated test host)");
+if (args.Contains("--driver") || args.Contains("--driver-update")) Console.WriteLine("Driver cleanup: " + (await DriverService.TryUnloadAsync()).Message);
 Console.WriteLine($"{tests - failures}/{tests} passed");
 return failures == 0 ? 0 : 1;
 

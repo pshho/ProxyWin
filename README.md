@@ -73,6 +73,8 @@ Destinations and ports both accept comma-separated lists, with optional spaces. 
 
 ProxyWin checks the public GitHub latest-release endpoint once at startup without blocking the window. A newer stable version shows **Update x.y.z available** in the header; clicking it opens the official release page. If current, the button allows a manual check; if GitHub is unavailable or rate-limited, it offers **Retry**. Checks time out after 10 seconds and do not interrupt routing. Downloads and installation remain manual. No proxy credentials or rules are sent to GitHub.
 
+Update checks are intended to work while rules are Active. The application's own update TCP sockets are registered before connection and excluded from ProxyWin's PROXY/BLOCK decisions for their lifetime, including pooled connections across Apply/Stop. This does not exclude other programs' GitHub connections. Windows/system proxy settings and normal TLS certificate validation still apply. When a check fails, the button tooltip and Events identify DNS, TLS, system-proxy, timeout or HTTP-status errors instead of the old generic “Rules are unchanged” notice.
+
 ### Process-wide rule
 
 To route Chrome's non-loopback TCP and UDP traffic through a SOCKS5 server:

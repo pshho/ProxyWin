@@ -1,0 +1,44 @@
+PASS Domain destination resolution, mixed IPs, IDN, failures and cancellation
+PASS Update versions, trusted release links and HTTP failure handling
+PASS Update TCP socket ownership, IPv4/IPv6, disposal and failed-connect cleanup
+PASS HTTP CONNECT status retained without response bodies or credentials
+PASS IP/CIDR and port boundaries
+PASS Comma-separated destinations and ports form one rule with all combinations
+PASS Selective IP policy, first match and process restrictions
+PASS Pinned native library and selective filter compilation (no driver opened)
+PASS IPv4/IPv6 packet parsing, original destination and reverse NAT
+PASS TCP mapping collisions and UDP memory bounds
+PASS DPAPI persistence and corrupt profile preservation
+PASS Real SOCKS5/HTTP handshakes preserve original IP and reject failures
+PASS SOCKS5 UDP association and original reply endpoint
+PASS SOCKS5 authentication success and failure
+  Bulk progress: sent=33554432, received=33554432, elapsed=0.146s
+BENCH 32 MiB upload + verified echo: 0.147 s; one-way payload rate 1823.6 Mbit/s (local test, not WAN)
+PASS 32 MiB TCP relay integrity, half-close and local throughput without driver
+PASS FLOW metadata ABI, IPv4/IPv6 addresses, PID and host-order ports
+PASS Observation to exact rule, explicit program scope and unsupported endpoints
+PASS DIRECT/PROXY/BLOCK order, independent actions and legacy profile compatibility
+PASS Version-2 encrypted actions roundtrip prevents old apps ignoring BLOCK
+PASS Wildcard process rules match both IP families and preserve order / scope
+PASS Wildcard native filter and serialized wildcard destination
+  Cycle 1: updater passed, other TCP blocked; rules stopped normally.
+  Cycle 2: updater passed, other TCP blocked; rules stopped normally.
+PASS Active BLOCK exempts only managed update TCP sockets across Apply/Stop
+PASS Actual wildcard destination with process-specific PROXY/BLOCK and nonmatching-process DIRECT
+PASS Actual BLOCK TCP/UDP without a proxy and DIRECT priority exception
+PASS Read-only FLOW observer: TCP/UDP PID attribution, traffic unaffected, stop/restart
+  Rules active. PROXY applies to new TCP connections.
+  Driver: TCP SOCKS5
+  Observer: original destination retained while proxying
+  Driver: UDP SOCKS5
+  Driver: TCP HTTP CONNECT
+  Driver: bulk integrity / half-close / throughput
+  Bulk progress: sent=33554432, received=33554432, elapsed=0.528s
+BENCH 32 MiB upload + verified echo: 0.529 s; one-way payload rate 507.7 Mbit/s (local test, not WAN)
+  Driver statistics: RelayStatistics { Uploaded = 33554572, Downloaded = 33554781, Dropped = 0, Errors = 0, TcpConnections = 0, UdpAssociations = 1, Blocked = 0 }
+  Rules stopped. Capture released.
+  Rules active. PROXY applies to new TCP connections.
+  Rules stopped. Capture released.
+PASS Actual WinDivert TCP/UDP redirection, concurrent flows, HTTP and restart
+Driver cleanup: WinDivert unloaded.
+26/26 passed
