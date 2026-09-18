@@ -3,7 +3,22 @@
   <Grid Margin="14">
     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" MinHeight="100" /><RowDefinition Height="7" /><RowDefinition Height="1.6*" MinHeight="185" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
     <DockPanel Margin="0,0,0,10">
-      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right"><TextBlock x:Name="StatusText" Text="● Stopped" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,12,0" /><Button x:Name="ToggleButton" Content="▶ Apply" Style="{StaticResource Primary}" Click="ToggleEngine" MinWidth="110" /></StackPanel>
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+        <Border x:Name="StatusBadge" CornerRadius="12" Padding="10,4" BorderThickness="1" VerticalAlignment="Center" Margin="0,0,10,0">
+          <Border.Style><Style TargetType="Border">
+            <Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="TextElement.Foreground" Value="{StaticResource Muted}" /><Setter Property="TextElement.FontWeight" Value="Normal" />
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding Text, ElementName=StatusText}" Value="● Active">
+                <Setter Property="Background" Value="#DCFCE7" /><Setter Property="BorderBrush" Value="#86EFAC" />
+                <Setter Property="TextElement.Foreground" Value="#166534" /><Setter Property="TextElement.FontWeight" Value="Bold" />
+              </DataTrigger>
+            </Style.Triggers>
+          </Style></Border.Style>
+          <TextBlock x:Name="StatusText" Text="● Stopped" VerticalAlignment="Center" />
+        </Border>
+        <Button x:Name="ToggleButton" Content="▶ Apply" Style="{StaticResource Primary}" Click="ToggleEngine" MinWidth="110" />
+      </StackPanel>
       <StackPanel Orientation="Horizontal"><Image Source="/Assets/ProxyWin.png" Width="24" Height="24" Margin="0,0,7,0" /><TextBlock Text="ProxyWin" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" /><Button x:Name="UpdateButton" Content="Check for updates" Click="CheckUpdates" Margin="16,0,0,0" Padding="8,3" ToolTip="Check GitHub for a new release." /></StackPanel>
     </DockPanel>
     <Border Grid.Row="1" x:Name="EditorPanel" Style="{StaticResource Card}" Margin="0,0,0,9">

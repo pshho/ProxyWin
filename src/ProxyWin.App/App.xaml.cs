@@ -69,6 +69,16 @@ public partial class App : Application
                 smoke.Width = smoke.MinWidth; smoke.Height = smoke.MinHeight;
                 await smoke.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
                 Capture(smoke, Path.Combine(output, "main-compact.png"));
+                var statusPreview = (TextBlock)smoke.FindName("StatusText");
+                var togglePreview = (Button)smoke.FindName("ToggleButton");
+                var originalStatus = statusPreview.Text; var originalToggle = togglePreview.Content;
+                foreach (var (status, label, file) in new[] { ("● Active", "■ Stop", "status-active.png"), ("● Working", "Working…", "status-working.png") })
+                {
+                    statusPreview.Text = status; togglePreview.Content = label;
+                    await smoke.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                    Capture(smoke, Path.Combine(output, file));
+                }
+                statusPreview.Text = originalStatus; togglePreview.Content = originalToggle;
                 var proxy = new ProxyDialog(null) { Owner = smoke };
                 proxy.Show();
                 await proxy.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
