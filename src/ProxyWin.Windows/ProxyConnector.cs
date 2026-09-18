@@ -12,6 +12,7 @@ public sealed class SocketBypass
 {
     private readonly ConcurrentDictionary<(bool Udp, int Port), long> ports = new();
     private long generation;
+    internal int Count => ports.Count;
     public bool Contains(bool udp, int port) => ports.ContainsKey((udp, port));
     public IDisposable Register(bool udp, int port)
     {

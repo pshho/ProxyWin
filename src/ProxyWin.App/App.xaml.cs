@@ -110,7 +110,7 @@ public partial class App : Application
                 domainEditor.ContentRendered += (_, _) => ((Button)domainEditor.FindName("SaveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 if (domainEditor.ShowDialog() != true || domainEditor.Result is null || domainEditor.Result.Destinations.Contains("fixture.example")
                     || RuleParser.Networks(domainEditor.Result.Destinations).Length < 2) throw new InvalidOperationException("Domain editor save failed.");
-                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: English compact/minimum window and editors, comma-separated rule addition and editing, domain conversion in quick-add and rule editor (injected DNS fixture), update notification/current-version states, DIRECT/PROXY/BLOCK and process-wide wildcard quick-add, rule order/toggle, observation-to-rule, duplicate prevention, substring process search preserving manual names, and loaded app icon; no driver opened; no user profile modified.");
+                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: English compact/minimum window and editors, comma-separated rule addition and editing, domain conversion in quick-add and rule editor (injected DNS fixture), update notification/current-version/failure states with safe error details, DIRECT/PROXY/BLOCK and process-wide wildcard quick-add, rule order/toggle, observation-to-rule, duplicate prevention, substring process search preserving manual names, and loaded app icon; no driver opened; no user profile modified.");
                 Shutdown(0);
             }
             catch (Exception ex) { File.WriteAllText(Path.Combine(output, "result.txt"), ex.ToString()); Shutdown(1); }

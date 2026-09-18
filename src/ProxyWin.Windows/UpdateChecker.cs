@@ -8,7 +8,8 @@ public sealed record AvailableUpdate(Version Version, Uri ReleasePage);
 
 public static class UpdateChecker
 {
-    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(10), MaxResponseContentBufferSize = 1024 * 1024 };
+    private static readonly HttpClient Client = new(new SocketsHttpHandler { ConnectCallback = ApplicationConnection.ConnectAsync })
+        { Timeout = TimeSpan.FromSeconds(10), MaxResponseContentBufferSize = 1024 * 1024 };
     public static Task<AvailableUpdate?> CheckAsync(Version current, CancellationToken cancellationToken = default) =>
         CheckAsync(Client, current, cancellationToken);
 
@@ -35,4 +36,18 @@ public static class UpdateChecker
         // Build the link from the fixed repository, never from an API-supplied URL.
         return latest > installed ? new AvailableUpdate(latest, new Uri($"https://github.com/pshho/ProxyWin/releases/tag/{tag}")) : null;
     }
+
+    public static string DescribeFailure(Exception error) => error switch
+    {
+        OperationCanceledException => "Update check timed out. Check the network or system proxy, then retry.",
+        HttpRequestException { HttpRequestError: HttpRequestError.ProxyTunnelError } => "The system proxy could not open the GitHub connection.",
+        HttpRequestException { StatusCode: System.Net.HttpStatusCode.TooManyRequests } => "GitHub request limit reached (HTTP 429). Retry later.",
+        HttpRequestException { StatusCode: { } status } => $"GitHub returned HTTP {(int)status}. Check access or retry later.",
+        HttpRequestException { HttpRequestError: HttpRequestError.NameResolutionError } => "Cannot resolve GitHub. Check Windows DNS settings.",
+        HttpRequestException { HttpRequestError: HttpRequestError.SecureConnectionError } => "GitHub TLS connection failed. Check Windows certificate trust and proxy TLS settings.",
+        HttpRequestException { HttpRequestError: HttpRequestError.ConnectionError } => "Cannot connect to GitHub or the system proxy.",
+        HttpRequestException => "GitHub network request failed. Check the network and system proxy.",
+        JsonException or FormatException or InvalidOperationException or KeyNotFoundException => "GitHub returned unexpected release information.",
+        _ => "Update check could not complete. Retry later."
+    };
 }

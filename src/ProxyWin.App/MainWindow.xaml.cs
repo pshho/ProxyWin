@@ -219,14 +219,16 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) when (closing) { }
         catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or OperationCanceledException or JsonException or FormatException or InvalidOperationException or KeyNotFoundException)
         {
-            if (!closing)
-            {
-                UpdateButton.Content = "Update check failed · Retry";
-                UpdateButton.ToolTip = "Could not check GitHub. Check your connection or try again later.";
-                QueueLog("Update check unavailable. Rules are unchanged.");
-            }
+            if (!closing) ShowUpdateFailure(ex);
         }
         finally { checkingUpdates = false; if (!closing) UpdateButton.IsEnabled = true; }
+    }
+    private void ShowUpdateFailure(Exception error)
+    {
+        var reason = UpdateChecker.DescribeFailure(error);
+        UpdateButton.Content = "Update check failed · Retry";
+        UpdateButton.ToolTip = reason;
+        QueueLog("Update check: " + reason);
     }
     private void ShowUpdateResult(AvailableUpdate? update, Version current)
     {
@@ -344,6 +346,10 @@ public partial class MainWindow : Window
         if (!UpdateButton.Content.ToString()!.Contains("99.0.0") || !UpdateButton.IsEnabled) throw new InvalidOperationException("Update notification not displayed.");
         ShowUpdateResult(null, new Version(0, 5, 0));
         if (!UpdateButton.Content.ToString()!.Contains("Up to date")) throw new InvalidOperationException("Current-version state not displayed.");
+        ShowUpdateFailure(new System.Net.Http.HttpRequestException("PRIVATE_RESPONSE", null, HttpStatusCode.Forbidden));
+        if (!UpdateButton.Content.ToString()!.Contains("Retry") || !UpdateButton.ToolTip.ToString()!.Contains("403")
+            || UpdateButton.ToolTip.ToString()!.Contains("PRIVATE_RESPONSE")) throw new InvalidOperationException("Update failure reason is missing or exposes response details.");
+        ShowUpdateResult(null, new Version(0, 5, 0));
     }
     internal void VerifySmokeBindings()
     {

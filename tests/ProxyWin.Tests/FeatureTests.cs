@@ -39,6 +39,12 @@ internal static class FeatureTests
 
     public static async Task Updates()
     {
+        Check(UpdateChecker.DescribeFailure(new HttpRequestException(HttpRequestError.SecureConnectionError, "SECRET_PROXY_PASSWORD")).Contains("TLS"));
+        Check(!UpdateChecker.DescribeFailure(new HttpRequestException(HttpRequestError.SecureConnectionError, "SECRET_PROXY_PASSWORD")).Contains("SECRET"));
+        Check(UpdateChecker.DescribeFailure(new HttpRequestException(HttpRequestError.NameResolutionError)).Contains("DNS"));
+        Check(UpdateChecker.DescribeFailure(new HttpRequestException("SECRET", null, HttpStatusCode.Forbidden)).Contains("403"));
+        Check(!UpdateChecker.DescribeFailure(new HttpRequestException("SECRET", null, HttpStatusCode.Forbidden)).Contains("SECRET"));
+        Check(UpdateChecker.DescribeFailure(new TaskCanceledException()).Contains("timed out"));
         string Release(string version, string extra = "") => $$"""{"tag_name":"{{version}}","draft":false,"prerelease":false{{extra}}} """;
         var current = new Version(0, 5, 9, 0);
         Check(UpdateChecker.Parse(Release("v0.5.10"), current)?.Version == new Version(0, 5, 10));
