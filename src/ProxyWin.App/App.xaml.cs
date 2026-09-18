@@ -46,7 +46,14 @@ public partial class App : Application
                     error.Handled = true;
                     Shutdown(1);
                 };
-                var smoke = new MainWindow(new ProfileStore(Path.Combine(output, "isolated-profile")), smokeMode: true);
+                // Deterministic DNS answers keep CI offline and preserve loopback rejection.
+                static async Task<string> ResolveFixture(string value, CancellationToken ct)
+                {
+                    if (value != "fixture.example, 203.0.113.10") return await DestinationResolver.ResolveAsync(value, ct);
+                    await Task.Delay(25, ct);
+                    return "203.0.113.11, 203.0.113.10";
+                }
+                var smoke = new MainWindow(new ProfileStore(Path.Combine(output, "isolated-profile")), smokeMode: true, ResolveFixture);
                 MainWindow = smoke;
                 smoke.Show();
                 await smoke.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
@@ -78,10 +85,23 @@ public partial class App : Application
                 };
                 if (edited.ShowDialog() != true || edited.Result?.Destinations != "203.0.113.10, 198.51.100.20"
                     || edited.Result.Ports != "80, 443, 8000-9000") throw new InvalidOperationException("Comma-separated rule editing failed.");
-                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: English compact/minimum window and editors, comma-separated rule addition and editing, DIRECT/PROXY/BLOCK and process-wide wildcard quick-add, rule order/toggle, observation-to-rule, duplicate prevention, substring process search preserving manual names, and loaded app icon; no driver opened; no user profile modified.");
+                await smoke.VerifyDomainBindingsAsync();
+                var domainEditor = new RuleDialog(new RoutingRule { Destinations = "fixture.example, 203.0.113.10", Action = RuleAction.Direct }, [], ResolveFixture) { Owner = smoke };
+                domainEditor.ContentRendered += (_, _) => ((Button)domainEditor.FindName("SaveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (domainEditor.ShowDialog() != true || domainEditor.Result is null || domainEditor.Result.Destinations.Contains("fixture.example")
+                    || RuleParser.Networks(domainEditor.Result.Destinations).Length < 2) throw new InvalidOperationException("Domain editor save failed.");
+                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: English compact/minimum window and editors, comma-separated rule addition and editing, domain conversion in quick-add and rule editor (injected DNS fixture), update notification/current-version states, DIRECT/PROXY/BLOCK and process-wide wildcard quick-add, rule order/toggle, observation-to-rule, duplicate prevention, substring process search preserving manual names, and loaded app icon; no driver opened; no user profile modified.");
                 Shutdown(0);
             }
             catch (Exception ex) { File.WriteAllText(Path.Combine(output, "result.txt"), ex.ToString()); Shutdown(1); }
+            return;
+        }
+        if (e.Args is ["--driver-fixture", var fixtureDirectory])
+        {
+            // Explicit opt-in for the elevated integration harness; never use the user's profile.
+            var fixture = new MainWindow(new ProfileStore(Path.GetFullPath(fixtureDirectory)));
+            fixture.Title = "ProxyWin driver test";
+            MainWindow = fixture; fixture.Show();
             return;
         }
         instance = new Mutex(true, "Local\\ProxyWin.GUI", out var created);

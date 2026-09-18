@@ -15,6 +15,8 @@ ProxyWin uses WinDivert 2.2.2 to apply ordered **DIRECT**, **PROXY**, and **BLOC
 - Multiple SOCKS5 and HTTP proxy servers, including username/password authentication.
 - Ordered DIRECT / PROXY / BLOCK rules with destination, port, protocol and process conditions.
 - IPv4/IPv6 IPs, CIDR ranges and destination `*` for process-wide rules.
+- Domain destinations automatically resolved to IPv4/IPv6 addresses when adding or editing a rule.
+- Startup update notification with a link to the latest official release, plus manual checks.
 - TCP through SOCKS5 or HTTP CONNECT; UDP through SOCKS5 UDP ASSOCIATE.
 - Live new-connection metadata: executable name, PID, protocol and endpoints.
 - Create a rule from an observed connection or search running processes by name.
@@ -37,6 +39,8 @@ Get-FileHash .\ProxyWin-0.5.0-win-x64.zip -Algorithm SHA256
 
 **Verification scope:** CI checks the build, local regressions and published GUI. Each automated ZIP includes its own `CI-VERIFICATION.md`. Historical 0.5.0 checks passed 16/16 local regression groups and GUI/caret checks, but its administrator suite **was not run because UAC approval was cancelled**. Hosted CI does not establish actual WinDivert interception behavior. See [VERIFICATION.md](VERIFICATION.md) for the historical local evidence.
 
+The [2026-09-18 feature and driver report](docs/verification/2026-09-18-features-driver.md) records the newer domain/update checks, elevated driver tests, real Whale soak and normal/forced exit results. It distinguishes capture-handle cleanup from the shared driver's service lifetime.
+
 ## Quick start
 
 1. Use **+ Server** to add a SOCKS5 or HTTP proxy. DIRECT and BLOCK need no server.
@@ -51,14 +55,23 @@ Hover over or click a round **!** for field help. Settings save automatically.
 | --- | --- |
 | Destination | `203.0.113.10`, `10.20.0.0/16`, `2001:db8::/32` |
 | Multiple destinations | `203.0.113.10, 198.51.100.20` |
+| Domains, optionally mixed with IPs | `example.com, 203.0.113.10` |
 | All IPv4 and IPv6 destinations | `*` |
 | All IPv4 / all IPv6 | `0.0.0.0/0` / `::/0` |
 | Port | `443`, `443, 8000-9000`, or `*` |
 | Process | `chrome.exe`; blank means all processes |
 
-Documentation IPs above are examples. Replace them with your intended destinations. Domains and partial IP patterns such as `192.168.*.*` are not supported; use CIDR for address ranges. Loopback/self traffic remains excluded.
+Documentation IPs above are examples. Replace them with your intended destinations. Partial IP patterns such as `192.168.*.*` are not supported; use CIDR for address ranges. Loopback/self traffic remains excluded.
+
+Domains are looked up through Windows DNS when you click **+ Rule** or **Save**. All supported IPv4/IPv6 answers are stored as numeric destinations, with duplicates removed. Internationalized domains are accepted. Lookup is asynchronous with a 10-second timeout; a failed lookup leaves the saved rules unchanged. Enter a hostname only, without a URL scheme, path or port.
+
+The saved addresses are a snapshot and do not refresh automatically. Re-enter the domain in the rule editor to refresh it. CDN addresses can change, and another domain sharing an IP will match the same IP rule. This is address-based routing, not HTTP Host/TLS SNI filtering.
 
 Destinations and ports both accept comma-separated lists, with optional spaces. For example, Destinations `203.0.113.10, 198.51.100.20` and Ports `80, 443, 8000-9000` create **one rule** matching either IP at any listed port/range. The lists are not paired by position. Use separate rules for specific IP-to-port pairs. Use `*` by itself, not mixed with list entries.
+
+### Update notifications
+
+ProxyWin checks the public GitHub latest-release endpoint once at startup without blocking the window. A newer stable version shows **Update x.y.z available** in the header; clicking it opens the official release page. If current, the button allows a manual check; if GitHub is unavailable or rate-limited, it offers **Retry**. Checks time out after 10 seconds and do not interrupt routing. Downloads and installation remain manual. No proxy credentials or rules are sent to GitHub.
 
 ### Process-wide rule
 
@@ -121,7 +134,7 @@ The **Filter: process / IP / port** box searches the displayed connection rows u
 - Loopback/self destinations are excluded. General unicast TCP/UDP is the supported scope.
 - Resource bounds include 2,048 concurrent TCP relays, 16,384 TCP mappings and 512 UDP associations. UDP queues are bounded to 32 packets per association and 16 MiB of queued payload globally.
 - **Blocked** counts intentional BLOCK decisions; **Dropped** and **Errors** report application-observed failures. These counters do not measure every possible driver/network loss.
-- Long-duration load, VPN coexistence, network changes, sleep/resume and live external IPv6 interception remain unverified. No throughput floor or uninterrupted-operation guarantee is made.
+- A 10-minute Whale/local-peer soak and exit tests are documented in [the 2026-09-18 report](docs/verification/2026-09-18-features-driver.md). Longer runs, VPN coexistence, network changes, sleep/resume and live external IPv6 interception remain unverified. No throughput floor or uninterrupted-operation guarantee is made.
 
 ## Settings
 
@@ -159,9 +172,18 @@ dotnet src/ProxyWin.App/bin/Release/net10.0-windows/win-x64/ProxyWin.dll --picke
 
 # Actual driver tests: prompts for Windows UAC
 ./scripts/Test-Driver.ps1
+
+# Real Whale + WPF lifecycle tests, including a 10-minute soak (UAC)
+dotnet build tests/ProxyWin.LiveTests/ProxyWin.LiveTests.csproj -c Release
+./scripts/Test-Whale.ps1 -SoakSeconds 600
+
+# Optional live Windows DNS / public GitHub API integration check
+dotnet run --project tests/ProxyWin.Tests/ProxyWin.Tests.csproj -c Release -- --network-features
 ```
 
 Driver tests generate traffic only to documentation addresses `203.0.113.10` / `203.0.113.11` at declared ports and local fake proxies. Lower-priority test filters consume DIRECT test traffic. Wildcard tests select TCP/UDP 7446 and the unique test executable; fragments are additionally captured. Observation fixtures are restricted to test PIDs. Tests do not change system routes.
+
+The Whale suite uses a separate headless Whale profile, a local HTTP test peer, and a real ProxyWin GUI with isolated encrypted settings. Its rule selects `whale.exe`, `203.0.113.10`, TCP port `18080`; a lower-priority sink prevents test packets leaving the host. It exercises 20 Apply/Stop cycles, byte-checked transfers, sustained traffic, and both standard window close (X/WM_CLOSE) and forced process termination during traffic. Read-only WinDivert REFLECT events verify that the GUI's capture/monitor handles close. The suite preserves the regular user profile and existing application instances. A shared WinDivert driver service may remain loaded even when the tested GUI owns no capture handles; the suite does not uninstall it. Results go to the printed `artifacts/whale-*` directory. These local measurements are not an Internet throughput guarantee.
 
 Do not change the global PowerShell execution policy just to run the scripts. Where necessary, use a reviewed, process-local policy exception.
 

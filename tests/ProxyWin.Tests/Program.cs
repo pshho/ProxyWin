@@ -118,6 +118,9 @@ Profile Example() => new()
     Rules = [new RoutingRule { Destinations = "203.0.113.10", ProxyId = "s", Network = Transport.Both }]
 };
 
+await Test("Domain destination resolution, mixed IPs, IDN, failures and cancellation", FeatureTests.Destinations);
+await Test("Update versions, trusted release links and HTTP failure handling", FeatureTests.Updates);
+
 await Test("IP/CIDR and port boundaries", () => Sync(() =>
 {
     Assert(RuleParser.Networks("192.168.10.123/24,2001:db8::123/64").SequenceEqual(new[] { "192.168.10.0/24", "2001:db8::/64" }), "normalization");
@@ -402,6 +405,22 @@ await Test("Wildcard native filter and serialized wildcard destination", () => S
     var copy = System.Text.Json.JsonSerializer.Deserialize<Profile>(System.Text.Json.JsonSerializer.Serialize(profile))!;
     Assert(copy.Rules[0].Destinations == "*" && copy.Rules[0].ProcessName == "worker.exe", "wildcard persisted without expanding scope");
 }));
+
+if (args.Contains("--network-features"))
+{
+    await Test("Real Windows DNS resolution", async () =>
+    {
+        var destinations = await DestinationResolver.ResolveAsync("github.com, 203.0.113.10");
+        Assert(!destinations.Contains("github.com") && RuleParser.Networks(destinations).Length > 1, "real DNS converted to numeric addresses");
+        Console.WriteLine($"  Live DNS: {destinations}");
+    });
+    await Test("Public GitHub update API", async () =>
+    {
+        var update = await UpdateChecker.CheckAsync(new Version(0, 0, 0));
+        Assert(update is not null && update.ReleasePage.Host == "github.com", "live public release lookup");
+        Console.WriteLine($"  Latest release: {update!.Version}");
+    });
+}
 
 if (args.Contains("--driver"))
 {
