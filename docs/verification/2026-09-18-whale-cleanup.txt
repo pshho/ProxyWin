@@ -1,0 +1,12 @@
+START 2026-09-18T11:34:38.4300289+09:00; OS=Microsoft Windows NT 10.0.26200.0; Whale=4.39.410.14; soak=10s
+BENCH direct Whale 32MiB download ms=[47.600000001490116,45.20000000298023,40.79999999701977]
+PASS 20 apply/stop cycles; apply_ms=[65.1903,57.1084,66.0727,135.6267,61.5899,73.641,73.1854,73.2414,71.0911,59.7986,60.1335,59.9376,61.1907,61.8657,73.6471,73.3295,60.5767,71.922,61.4818,60.4465]; stop_ms=[72.5709,73.5494,75.6978,61.1082,64.6877,80.901,67.3039,68.6572,60.7307,69.1751,70.5363,58.7069,62.4713,65.651,66.8552,76.2632,63.6879,60.3233,60.9598,66.9958]
+BENCH intercepted Whale 32MiB download ms=[327.19999999552965,344,303.5]; CONNECTs=23
+SAMPLE {"seconds":0.06,"WorkingSet64":157421568,"PrivateMemorySize64":67317760,"HandleCount":707,"threads":29,"cpuSeconds":4.890625,"stats":"TCP 0 \u00B7 UDP 0   \u2191 0.0 MB  \u2193 100.0 MB   Blocked 0 \u00B7 Dropped 0 \u00B7 Errors 0","transfers":1}
+PASS soak 10.6s; transfers=5; stats=TCP 0 · UDP 0   ↑ 0.0 MB  ↓ 116.0 MB   Blocked 0 · Dropped 0 · Errors 0
+PASS stop + stop monitor: zero GUI WinDivert handles; direct Whale transfer intact
+PASS X/WM_CLOSE during traffic; exit+release_ms=77.1; GUI handles=0; no orphan relay; direct Whale intact
+PASS TerminateProcess during traffic; exit+release_ms=60.1; GUI handles=0; no orphan relay; direct Whale intact
+PASS user profile unchanged; fixture requests=47, bytes=550502536, CONNECTs=39
+COMPLETE 2026-09-18T11:35:10.0858178+09:00
+FINAL user profile unchanged=True

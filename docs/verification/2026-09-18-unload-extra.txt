@@ -1,0 +1,7 @@
+PASS active capture prevents shared-service unload: WinDivert retained: capture or monitoring is still in use.
+PASS idle service unload, confirmed STOPPED/absent
+PASS X/WM_CLOSE: service STOPPED/absent, guard report after 120.8 ms; 2026-09-18T12:00:01.8730014+09:00 WinDivert is not loaded.
+PASS TerminateProcess: service STOPPED/absent, guard report after 58.4 ms; 2026-09-18T12:00:03.6088826+09:00 WinDivert unloaded.
+FAIL System.TimeoutException: Startup-close cleanup guard
+   at Wait.Until(Func`1 condition, String description, Int32 seconds) in C:\Users\zptmz\Documents\Projects\ProxyWin\tests\ProxyWin.LiveTests\WhaleClient.cs:line 98
+   at UnloadTests.Run(String appPath, String directory) in C:\Users\zptmz\Documents\Projects\ProxyWin\tests\ProxyWin.LiveTests\UnloadTests.cs:line 47

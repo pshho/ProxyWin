@@ -44,9 +44,11 @@ public static class ProxyConnector
         client.Client.Bind(new IPEndPoint(server.AddressFamily == AddressFamily.InterNetwork ? IPAddress.Any : IPAddress.IPv6Any, 0));
         var lease = bypass.Register(false, ((IPEndPoint)client.Client.LocalEndPoint!).Port);
         var connection = new ProxyConnection(client, lease);
+        var connected = false;
         try
         {
             await client.ConnectAsync(server.Address, server.Port, timeout.Token);
+            connected = true;
             if (proxy.Kind == ProxyKind.Socks5)
             {
                 await AuthenticateAsync(connection.Stream, proxy, timeout.Token);
@@ -68,11 +70,13 @@ public static class ProxyConnector
                 }
                 var firstLine = Encoding.ASCII.GetString(header, 0, count).Split("\r\n")[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (count == header.Length || firstLine.Length < 2 || !firstLine[0].StartsWith("HTTP/1.", StringComparison.Ordinal)
-                    || !int.TryParse(firstLine[1], out var status) || status != 200)
-                    throw new IOException("HTTP CONNECT rejected. Check the proxy and credentials.");
+                    || !int.TryParse(firstLine[1], out var status) || status is < 100 or > 599)
+                    throw new HttpConnectException(null);
+                if (status != 200) throw new HttpConnectException(status);
             }
             return connection;
         }
+        catch (IOException ex) when (connected) { connection.Dispose(); throw new ProxyHandshakeException(proxy.Kind, ex); }
         catch { connection.Dispose(); throw; }
     }
 

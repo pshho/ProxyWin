@@ -107,7 +107,7 @@ public sealed class DivertEngine : IAsyncDisposable
         if (now - Interlocked.Read(ref state.LastLog) < 1000) return;
         Interlocked.Exchange(ref state.LastLog, now);
         // Only typed error summaries: upstream bodies and authentication bytes are never logged.
-        Log?.Invoke(ex is SocketException socket ? $"Network error: {socket.SocketErrorCode}" : $"Relay error: {ex.GetType().Name}. Check the proxy and credentials.");
+        Log?.Invoke(RelayDiagnostics.Describe(ex));
     }
 
     private async Task Accept(Session state, TcpListener listener)
@@ -255,7 +255,7 @@ public sealed class DivertEngine : IAsyncDisposable
         if (unknownLocal || (owner is null && needsOwner))
         {
             Interlocked.Increment(ref state.Dropped);
-            Failure(state, new IOException("Cannot identify the connection owner."));
+            Failure(state, new ConnectionOwnerException());
             return 0;
         }
         var route = excluded ? null : state.Plan.Match(key.RemoteAddress, key.RemotePort, key.Udp, SocketOwners.Name(owner));

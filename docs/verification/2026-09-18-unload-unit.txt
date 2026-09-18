@@ -1,0 +1,24 @@
+PASS Domain destination resolution, mixed IPs, IDN, failures and cancellation
+PASS Update versions, trusted release links and HTTP failure handling
+PASS HTTP CONNECT status retained without response bodies or credentials
+PASS IP/CIDR and port boundaries
+PASS Comma-separated destinations and ports form one rule with all combinations
+PASS Selective IP policy, first match and process restrictions
+PASS Pinned native library and selective filter compilation (no driver opened)
+PASS IPv4/IPv6 packet parsing, original destination and reverse NAT
+PASS TCP mapping collisions and UDP memory bounds
+PASS DPAPI persistence and corrupt profile preservation
+PASS Real SOCKS5/HTTP handshakes preserve original IP and reject failures
+PASS SOCKS5 UDP association and original reply endpoint
+PASS SOCKS5 authentication success and failure
+  Bulk progress: sent=33554432, received=33554432, elapsed=0.149s
+BENCH 32 MiB upload + verified echo: 0.150 s; one-way payload rate 1785.9 Mbit/s (local test, not WAN)
+PASS 32 MiB TCP relay integrity, half-close and local throughput without driver
+PASS FLOW metadata ABI, IPv4/IPv6 addresses, PID and host-order ports
+PASS Observation to exact rule, explicit program scope and unsupported endpoints
+PASS DIRECT/PROXY/BLOCK order, independent actions and legacy profile compatibility
+PASS Version-2 encrypted actions roundtrip prevents old apps ignoring BLOCK
+PASS Wildcard process rules match both IP families and preserve order / scope
+PASS Wildcard native filter and serialized wildcard destination
+SKIP actual driver interception (pass --driver from an elevated test host)
+20/20 passed

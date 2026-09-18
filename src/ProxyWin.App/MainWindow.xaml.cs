@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Net;
 using System.Security.Principal;
 using System.Text.Json;
@@ -19,8 +20,13 @@ public partial class MainWindow : Window
     private readonly DivertEngine engine = new();
     private readonly ConnectionObserver observer = new();
     private readonly bool smokeMode;
+    private readonly Func<string, CancellationToken, Task<string>> resolveDestinations;
     private Profile profile = new();
     private bool busy, closing, closed, loadFailed;
+    private bool resolving, checkingUpdates;
+    private readonly CancellationTokenSource lifetime = new();
+    private AvailableUpdate? availableUpdate;
+    private Task? cleanupGuard;
     private readonly ConcurrentQueue<string> pendingLogs = new();
     private readonly ObservableCollection<string> logs = [];
     private readonly ObservableCollection<ObservedConnection> observations = [];
@@ -28,12 +34,14 @@ public partial class MainWindow : Window
     private bool observerBusy;
     private string? observedError;
     private readonly DispatcherTimer timer;
-    public MainWindow(ProfileStore store, bool smokeMode = false)
+    public MainWindow(ProfileStore store, bool smokeMode = false) : this(store, smokeMode, DestinationResolver.ResolveAsync) { }
+    internal MainWindow(ProfileStore store, bool smokeMode, Func<string, CancellationToken, Task<string>> resolveDestinations)
     {
         InitializeComponent(); this.store = store; this.smokeMode = smokeMode;
+        this.resolveDestinations = resolveDestinations;
         ProcessPicker.Attach(ProcessBox);
         engine.Log += QueueLog;
-        engine.Exited += () => Dispatcher.BeginInvoke(() => { if (!closing) Refresh(); });
+        engine.Exited += () => Dispatcher.BeginInvoke(async () => { if (!closing) { await UnloadDriverAsync(); Refresh(); } });
         LogList.ItemsSource = logs;
         observationView = CollectionViewSource.GetDefaultView(observations);
         observationView.Filter = MatchesObservationFilter;
@@ -41,6 +49,7 @@ public partial class MainWindow : Window
         timer = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) => Tick(), Dispatcher);
         try { profile = store.Load(); } catch (Exception ex) { loadFailed = true; Loaded += (_, _) => Error(ex); }
         Refresh();
+        if (!smokeMode) Loaded += async (_, _) => await CheckUpdatesAsync();
     }
     private void QueueLog(string message)
     {
@@ -65,7 +74,7 @@ public partial class MainWindow : Window
         public string ActionLabel => Rule.ActionLabel;
         public string ProcessLabel => Rule.ProcessName.Length == 0 ? "All" : Rule.ProcessName;
     }
-    private bool CanEdit => !busy && !engine.IsRunning && !loadFailed;
+    private bool CanEdit => !busy && !resolving && !closing && !engine.IsRunning && !loadFailed;
     private RuleAction SelectedAction => (RuleAction)Math.Max(0, ActionBox.SelectedIndex);
     private void Refresh(string? selectedProxy = null)
     {
@@ -75,10 +84,10 @@ public partial class MainWindow : Window
         RulesGrid.ItemsSource = profile.Rules.Select(r => new RuleRow(r, r.Action != RuleAction.Proxy ? "—" : profile.Proxies.FirstOrDefault(p => p.Id == r.ProxyId)?.Name ?? "Missing")).ToList();
         RuleCount.Text = $"Rules {profile.Rules.Count} · First match wins"; RuleEmpty.Visibility = profile.Rules.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         EditorPanel.IsEnabled = RulePanel.IsEnabled = CanEdit;
-        ToggleButton.IsEnabled = !busy && !loadFailed && (engine.IsRunning || profile.Rules.Any(r => r.Enabled));
+        ToggleButton.IsEnabled = !busy && !resolving && !closing && !loadFailed && (engine.IsRunning || profile.Rules.Any(r => r.Enabled));
         ToggleButton.Content = busy ? "Working…" : engine.IsRunning ? "■ Stop" : "▶ Apply";
         StatusText.Text = busy ? "● Working" : engine.IsRunning ? "● Active" : "● Stopped";
-        FooterText.Text = loadFailed ? "Profile unavailable · Editing locked" : engine.IsRunning ? "Active · Stop to edit rules" : "Auto-saved · PROXY affects new TCP connections";
+        FooterText.Text = resolving ? "Resolving domains…" : loadFailed ? "Profile unavailable · Editing locked" : engine.IsRunning ? "Active · Stop to edit rules" : "Auto-saved · PROXY affects new TCP connections";
         RefreshObservationControls();
     }
     private bool Change(Action<Profile> mutation, string? selected = null)
@@ -110,7 +119,8 @@ public partial class MainWindow : Window
         if (profile.Rules.Any(r => r.Action == RuleAction.Proxy && r.ProxyId == proxy.Id)) { Error(new InvalidOperationException("Remove or update rules using this proxy first.")); return; }
         if (AppMessages.Confirm(this, $"Remove proxy '{proxy.Name}'?", "Remove proxy")) Change(p => p.Proxies.RemoveAll(x => x.Id == proxy.Id));
     }
-    private void AddTarget(object sender, RoutedEventArgs e)
+    private async void AddTarget(object sender, RoutedEventArgs e) => await AddTargetAsync();
+    private async Task AddTargetAsync()
     {
         if (!CanEdit) return;
         var proxy = ProxyBox.SelectedItem as ProxyServer;
@@ -119,10 +129,15 @@ public partial class MainWindow : Window
         {
             var rule = new RoutingRule { Name = TargetBox.Text.Trim(), Destinations = TargetBox.Text.Trim(), Ports = PortBox.Text.Trim(), Network = (Transport)ProtocolBox.SelectedIndex, Action = SelectedAction,
                 ProxyId = SelectedAction == RuleAction.Proxy ? proxy!.Id : SelectedAction == RuleAction.Direct ? "direct" : "block", ProcessName = ProcessBox.Text.Trim() };
+            resolving = true; Refresh();
+            try { rule.Destinations = await resolveDestinations(rule.Destinations, lifetime.Token); }
+            finally { resolving = false; if (!closing) Refresh(); }
+            if (closing) return;
             _ = new CapturePlan(new Profile { Proxies = profile.Proxies, Rules = [rule] });
             if (Change(p => p.Rules.Add(rule))) { TargetBox.Clear(); TargetBox.Focus(); }
         }
-        catch (Exception ex) { Error(ex); }
+        catch (OperationCanceledException) when (closing) { }
+        catch (Exception ex) { if (!closing) Error(ex); }
     }
     private void EditRule(object sender, RoutedEventArgs e)
     {
@@ -151,7 +166,7 @@ public partial class MainWindow : Window
     }
     private async void ToggleEngine(object sender, RoutedEventArgs e)
     {
-        if (busy || smokeMode || loadFailed) return;
+        if (busy || resolving || closing || smokeMode || loadFailed) return;
         busy = true; Refresh();
         try
         {
@@ -161,13 +176,63 @@ public partial class MainWindow : Window
                 _ = new CapturePlan(profile);
                 using var identity = WindowsIdentity.GetCurrent();
                 if (!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator)) throw new InvalidOperationException("Run ProxyWin as administrator.");
-                store.Save(profile); await engine.StartAsync(profile);
+                store.Save(profile); await EnsureCleanupGuardAsync();
+                if (closing) return;
+                await engine.StartAsync(profile);
             }
         }
-        catch (Exception ex) { Error(ex); }
-        finally { busy = false; Refresh(); }
+        catch (Exception ex) { if (!closing) Error(ex); }
+        finally { if (!engine.IsRunning) await UnloadDriverAsync(); busy = false; if (!closing) Refresh(); }
+    }
+    private Task EnsureCleanupGuardAsync()
+    {
+        if (cleanupGuard?.IsFaulted == true) cleanupGuard = null;
+        return cleanupGuard ??= DriverCleanupGuard.StartAsync(store.DirectoryPath);
+    }
+    private async Task UnloadDriverAsync()
+    {
+        if (smokeMode || cleanupGuard is null) return;
+        if (engine.IsRunning || observer.IsRunning) { QueueLog("WinDivert remains loaded while routing or monitoring is active."); return; }
+        QueueLog((await DriverService.TryUnloadAsync()).Message);
     }
     private void ClearLogs(object sender, RoutedEventArgs e) { pendingLogs.Clear(); logs.Clear(); }
+    private async void CheckUpdates(object sender, RoutedEventArgs e)
+    {
+        if (availableUpdate is { } update)
+        {
+            try { Process.Start(new ProcessStartInfo(update.ReleasePage.AbsoluteUri) { UseShellExecute = true }); }
+            catch (Exception ex) { Error(ex); }
+        }
+        else await CheckUpdatesAsync();
+    }
+    private async Task CheckUpdatesAsync()
+    {
+        if (checkingUpdates || closing || smokeMode) return;
+        checkingUpdates = true; UpdateButton.IsEnabled = false; UpdateButton.Content = "Checking…";
+        var version = typeof(App).Assembly.GetName().Version!;
+        try
+        {
+            availableUpdate = await UpdateChecker.CheckAsync(version, lifetime.Token);
+            if (closing) return;
+            ShowUpdateResult(availableUpdate, version);
+        }
+        catch (OperationCanceledException) when (closing) { }
+        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or OperationCanceledException or JsonException or FormatException or InvalidOperationException or KeyNotFoundException)
+        {
+            if (!closing)
+            {
+                UpdateButton.Content = "Update check failed · Retry";
+                UpdateButton.ToolTip = "Could not check GitHub. Check your connection or try again later.";
+                QueueLog("Update check unavailable. Rules are unchanged.");
+            }
+        }
+        finally { checkingUpdates = false; if (!closing) UpdateButton.IsEnabled = true; }
+    }
+    private void ShowUpdateResult(AvailableUpdate? update, Version current)
+    {
+        UpdateButton.Content = update is not null ? $"Update {update.Version} available ↗" : "Up to date · Check again";
+        UpdateButton.ToolTip = $"Installed: {current.ToString(3)}. " + (update is null ? "Check GitHub for a new release." : "Open the release page to download the update.");
+    }
     private void OpenProcessPicker(object sender, EventArgs e)
     {
         try { ProcessPicker.Refresh((ComboBox)sender); } catch (Exception ex) { Error(ex); }
@@ -179,10 +244,14 @@ public partial class MainWindow : Window
         try
         {
             if (observer.IsRunning) { await observer.StopAsync(); QueueLog("Monitor stopped. Rules are unchanged."); }
-            else { await observer.StartAsync(); observedError = null; QueueLog("Monitor started. New TCP/UDP connections only; stored in memory."); }
+            else
+            {
+                await EnsureCleanupGuardAsync(); if (closing) return;
+                await observer.StartAsync(); observedError = null; QueueLog("Monitor started. New TCP/UDP connections only; stored in memory.");
+            }
         }
-        catch (Exception ex) { Error(ex); }
-        finally { observerBusy = false; RefreshObservationControls(); }
+        catch (Exception ex) { if (!closing) Error(ex); }
+        finally { if (!observer.IsRunning) await UnloadDriverAsync(); observerBusy = false; if (!closing) RefreshObservationControls(); }
     }
     private void AddObservation(ObservedConnection connection)
     {
@@ -260,6 +329,22 @@ public partial class MainWindow : Window
     }
     private void ClearObservations(object sender, RoutedEventArgs e) { observer.Clear(); observations.Clear(); RefreshObservationControls(); }
     private void Error(Exception ex) => AppMessages.Error(this, ex);
+    internal async Task VerifyDomainBindingsAsync()
+    {
+        if (!smokeMode) throw new InvalidOperationException();
+        var count = profile.Rules.Count;
+        ActionBox.SelectedIndex = (int)RuleAction.Direct;
+        TargetBox.Text = "fixture.example, 203.0.113.10"; PortBox.Text = "443";
+        await AddTargetAsync();
+        if (profile.Rules.Count != count + 1 || !profile.Rules[^1].Destinations.Contains("203.0.113.10")
+            || profile.Rules[^1].Destinations.Contains("fixture.example") || RuleParser.Networks(profile.Rules[^1].Destinations).Length < 2
+            || !ToggleButton.IsEnabled || !EditorPanel.IsEnabled)
+            throw new InvalidOperationException("Domain quick-add / editor state restoration failed.");
+        ShowUpdateResult(new AvailableUpdate(new Version(99, 0, 0), new Uri("https://github.com/pshho/ProxyWin/releases/latest")), new Version(0, 5, 0));
+        if (!UpdateButton.Content.ToString()!.Contains("99.0.0") || !UpdateButton.IsEnabled) throw new InvalidOperationException("Update notification not displayed.");
+        ShowUpdateResult(null, new Version(0, 5, 0));
+        if (!UpdateButton.Content.ToString()!.Contains("Up to date")) throw new InvalidOperationException("Current-version state not displayed.");
+    }
     internal void VerifySmokeBindings()
     {
         if (!smokeMode) throw new InvalidOperationException();
@@ -312,9 +397,14 @@ public partial class MainWindow : Window
     private async void OnClosing(object? sender, CancelEventArgs e)
     {
         if (closed) return; e.Cancel = true; if (closing) return;
-        closing = true; IsEnabled = false;
+        closing = true; lifetime.Cancel(); IsEnabled = false;
         try { try { await observer.DisposeAsync(); } finally { await engine.DisposeAsync(); } } catch (Exception ex) { Error(ex); }
-        finally { timer.Stop(); closed = true; Close(); }
+        finally
+        {
+            if (cleanupGuard is not null)
+                try { await cleanupGuard; } catch (Exception ex) { QueueLog($"Cleanup guard unavailable: {ex.GetType().Name}."); }
+            await UnloadDriverAsync(); timer.Stop(); closed = true; Close();
+        }
     }
 
     internal async Task VerifyProcessCaretAsync()

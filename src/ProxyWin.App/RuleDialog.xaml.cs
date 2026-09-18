@@ -1,5 +1,6 @@
 using System.Windows;
 using ProxyWin.Core;
+using ProxyWin.Windows;
 
 namespace ProxyWin.App;
 
@@ -7,10 +8,16 @@ public partial class RuleDialog : Window
 {
     private readonly List<ProxyServer> proxies;
     private readonly string name;
+    private readonly Func<string, CancellationToken, Task<string>> resolveDestinations;
+    private readonly CancellationTokenSource lifetime = new();
+    private bool saving, closed;
     public RoutingRule? Result { get; private set; }
-    public RuleDialog(RoutingRule? rule, List<ProxyServer> proxies)
+    public RuleDialog(RoutingRule? rule, List<ProxyServer> proxies) : this(rule, proxies, DestinationResolver.ResolveAsync) { }
+    internal RuleDialog(RoutingRule? rule, List<ProxyServer> proxies, Func<string, CancellationToken, Task<string>> resolveDestinations)
     {
         InitializeComponent();
+        this.resolveDestinations = resolveDestinations;
+        Closed += (_, _) => { closed = true; lifetime.Cancel(); };
         ProcessPicker.Attach(ProcessBox);
         this.proxies = proxies;
         rule ??= new RoutingRule { Destinations = "*", Action = proxies.Count > 0 ? RuleAction.Proxy : RuleAction.Direct, ProxyId = proxies.FirstOrDefault()?.Id ?? "direct" };
@@ -25,8 +32,10 @@ public partial class RuleDialog : Window
         ActionBox.SelectedIndex = (int)rule.Action;
         TargetBox.IsEnabled = rule.Action == RuleAction.Proxy;
     }
-    private void Save(object sender, RoutedEventArgs e)
+    private async void Save(object sender, RoutedEventArgs e)
     {
+        if (saving || closed) return;
+        saving = true; FieldsPanel.IsEnabled = SaveButton.IsEnabled = false; SaveButton.Content = "Resolving…";
         try
         {
             var result = new RoutingRule
@@ -36,11 +45,15 @@ public partial class RuleDialog : Window
                 Action = (RuleAction)ActionBox.SelectedIndex,
                 ProxyId = ActionBox.SelectedIndex == (int)RuleAction.Proxy ? TargetBox.SelectedValue as string ?? "" : ActionBox.SelectedIndex == (int)RuleAction.Direct ? "direct" : "block", ProcessName = ProcessBox.Text.Trim()
             };
+            result.Destinations = await resolveDestinations(result.Destinations, lifetime.Token);
+            if (closed) return;
             RuleParser.Validate(new Profile { Proxies = proxies, Rules = [result] });
             Result = result;
             DialogResult = true;
         }
-        catch (Exception ex) { AppMessages.Error(this, ex); }
+        catch (OperationCanceledException) when (closed) { }
+        catch (Exception ex) { if (!closed) AppMessages.Error(this, ex); }
+        finally { saving = false; if (!closed) { FieldsPanel.IsEnabled = SaveButton.IsEnabled = true; SaveButton.Content = "Save"; } }
     }
     private void OpenProcessPicker(object sender, EventArgs e)
     {

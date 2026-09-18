@@ -1,0 +1,13 @@
+START 2026-09-18T11:56:03.1391050+09:00; OS=Microsoft Windows NT 10.0.26200.0; Whale=4.39.410.14; soak=30s
+BENCH direct Whale 32MiB download ms=[63.70000000298023,41,40]
+PASS 20 apply/stop cycles; apply_ms=[112.059,61.361,70.135,75.6181,61.9863,69.1363,61.2163,61.1001,68.9181,94.6701,61.0535,62.0505,67.9273,70.1275,62.2821,62.9106,61.4877,60.9595,61.8603,72.4748]; stop_ms=[133.436,61.8532,63.6939,77.6659,69.7282,61.7513,59.1311,68.3836,61.0203,72.3917,61.9604,69.0969,61.2276,68.9764,61.4656,61.9034,61.1434,60.8433,60.3867,64.3199]
+BENCH intercepted Whale 32MiB download ms=[335,370.80000000447035,392.20000000298023]; CONNECTs=24
+SAMPLE {"seconds":0.11,"WorkingSet64":167809024,"PrivateMemorySize64":73863168,"HandleCount":724,"threads":29,"cpuSeconds":6.015625,"stats":"TCP 0 \u00B7 UDP 0   \u2191 0.0 MB  \u2193 100.0 MB   Blocked 0 \u00B7 Dropped 0 \u00B7 Errors 0","transfers":1}
+SAMPLE {"seconds":29.49,"WorkingSet64":180412416,"PrivateMemorySize64":80297984,"HandleCount":708,"threads":26,"cpuSeconds":9.265625,"stats":"TCP 0 \u00B7 UDP 0   \u2191 0.0 MB  \u2193 152.0 MB   Blocked 0 \u00B7 Dropped 0 \u00B7 Errors 0","transfers":15}
+PASS soak 31.6s; transfers=15; stats=TCP 0 · UDP 0   ↑ 0.0 MB  ↓ 156.0 MB   Blocked 0 · Dropped 0 · Errors 0
+PASS stop + stop monitor: zero GUI WinDivert handles; direct Whale transfer intact
+PASS X/WM_CLOSE during traffic; exit+release_ms=85.8; GUI handles=0; no orphan relay; direct Whale intact
+PASS TerminateProcess during traffic; exit+release_ms=61.9; GUI handles=0; no orphan relay; direct Whale intact
+PASS user profile unchanged; fixture requests=56, bytes=558891144, CONNECTs=50
+COMPLETE 2026-09-18T11:56:59.5617986+09:00
+FINAL user profile unchanged=True
