@@ -79,6 +79,11 @@ public partial class App : Application
                     Capture(smoke, Path.Combine(output, file));
                 }
                 statusPreview.Text = originalStatus; togglePreview.Content = originalToggle;
+                var eventsPreview = (Expander)smoke.FindName("EventsPanel");
+                eventsPreview.IsExpanded = true;
+                await smoke.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                Capture(smoke, Path.Combine(output, "main-events-expanded.png"));
+                eventsPreview.IsExpanded = false;
                 var proxy = new ProxyDialog(null) { Owner = smoke };
                 proxy.Show();
                 await proxy.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
@@ -128,6 +133,12 @@ public partial class App : Application
 
     private static void Capture(Window window, string path)
     {
+        if (window is MainWindow main)
+        {
+            var measurements = new[] { "EditorPanel", "RulesGrid", "ObservationGrid", "EventsPanel" }
+                .ToDictionary(name => name, name => new { Width = ((FrameworkElement)main.FindName(name)).ActualWidth, Height = ((FrameworkElement)main.FindName(name)).ActualHeight });
+            File.WriteAllText(Path.ChangeExtension(path, ".layout.json"), System.Text.Json.JsonSerializer.Serialize(measurements));
+        }
         var bitmap = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(window);
         var encoder = new PngBitmapEncoder();
