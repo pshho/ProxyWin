@@ -7,6 +7,8 @@ using System.Windows.Automation;
 using ProxyWin.Core;
 using ProxyWin.Windows;
 
+if (args is ["--unload", var unloadApp, var unloadDirectory]) return await UnloadTests.Run(unloadApp, unloadDirectory);
+
 if (args is not [var appExe, var whaleExe, var outputDirectory, var soakText])
 {
     Console.Error.WriteLine("Usage: ProxyWin.LiveTests <ProxyWin.exe> <whale.exe> <output-directory> <soak-seconds>");

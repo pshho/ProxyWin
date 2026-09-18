@@ -120,6 +120,7 @@ Profile Example() => new()
 
 await Test("Domain destination resolution, mixed IPs, IDN, failures and cancellation", FeatureTests.Destinations);
 await Test("Update versions, trusted release links and HTTP failure handling", FeatureTests.Updates);
+await Test("HTTP CONNECT status retained without response bodies or credentials", HttpFailureTests.StatusCodes);
 
 await Test("IP/CIDR and port boundaries", () => Sync(() =>
 {

@@ -125,6 +125,21 @@ The **Filter: process / IP / port** box searches the displayed connection rows u
 - The external server sees the proxy's outbound network identity; the original public source IP and source port are not preserved.
 - There is no certificate-pinning bypass feature.
 
+### HTTP proxy diagnostics
+
+Events distinguish HTTP CONNECT rejection from socket/stream failures. For example:
+
+| Message | Meaning / next check |
+| --- | --- |
+| `HTTP CONNECT handshake: HTTP 407` | Proxy authentication is required or was rejected; check the listener's supported authentication |
+| `HTTP CONNECT handshake: HTTP 403` | The proxy denied this CONNECT destination; check its rules and allowed ports |
+| `HTTP CONNECT handshake: HTTP 502/503/504` | The proxy could not establish the destination connection; inspect its own event log |
+| `HTTP CONNECT handshake: Peer closed...` | The listener closed before completing the reply; verify proxy type and port |
+| `TCP stream: Socket ConnectionReset (10054)` | A connection was reset during relay; this alone does not identify which peer caused it |
+| `Cannot identify the connection owner` | Windows socket-owner attribution failed; the packet was dropped to preserve routing and loop-prevention checks |
+
+Only status/socket codes and application-defined text are logged, not proxy response bodies, headers or credentials. The previous generic `IOException / Check the proxy and credentials` message was not proof of an authentication failure. With `127.0.0.1`, the proxy must run on the **same PC** as ProxyWin. Browser-configured HTTP proxying can behave differently: ProxyWin always uses CONNECT to a numeric destination, including for plain HTTP ports.
+
 ## Scope and limits
 
 - Specific-IP rules narrow kernel capture. Destination `*` broadens capture before Windows socket-owner lookup, so process-wide rules can increase CPU usage.
@@ -142,7 +157,13 @@ Settings are encrypted for the current Windows user at `%LOCALAPPDATA%/ProxyWin/
 
 Profile format version 2 stores explicit actions. Legacy version-1 DIRECT/proxy configurations remain readable. ProxyWin 0.5.0 accepts destination wildcard rules; 0.4 rejects active all-destination rules. A corrupt profile locks editing instead of being overwritten.
 
-The official driver is SHA-256 pinned, and setup checks its Authenticode signature. Security software can prevent driver loading. Closing ProxyWin releases its capture handles but does not uninstall a shared WinDivert service used by another application.
+The official driver is SHA-256 pinned, and setup checks its Authenticode signature. Security software can prevent driver loading.
+
+After the last routing/monitoring handle closes, ProxyWin attempts to stop and unload the idle shared WinDivert driver. A running monitor keeps the driver loaded after **Stop**; use **Stop monitor** as well. Active capture/monitor handles from other applications prevent the unload attempt. An unrecognized service path or different driver hash is also left alone. Apply/Start monitor reloads the driver on demand.
+
+Before opening its first driver handle, ProxyWin starts one hidden cleanup process. This process waits for the exact GUI process to exit and attempts the same idle-driver cleanup after an ordinary close or termination of the GUI alone. It then exits and writes a status-only `driver-cleanup.txt` beside the profile. Terminating the entire process tree (including this guard), power loss, or OS/security-software refusal cannot guarantee cleanup. No other application is killed, no driver files are deleted, and the application does not disable the shared service. Idle detection is a best-effort snapshot; concurrent external opens can cause Windows to refuse or defer stopping, which is reported instead of forcing termination.
+
+See the [unload and HTTP diagnostics verification](docs/verification/2026-09-18-unload-http.md) for actual service-stop/reload and normal/forced-exit evidence.
 
 ## Build and test
 
@@ -177,13 +198,16 @@ dotnet src/ProxyWin.App/bin/Release/net10.0-windows/win-x64/ProxyWin.dll --picke
 dotnet build tests/ProxyWin.LiveTests/ProxyWin.LiveTests.csproj -c Release
 ./scripts/Test-Whale.ps1 -SoakSeconds 600
 
+# Idle shared-driver unload/reload, other-user retention, X and forced exit (UAC)
+./scripts/Test-Unload.ps1
+
 # Optional live Windows DNS / public GitHub API integration check
 dotnet run --project tests/ProxyWin.Tests/ProxyWin.Tests.csproj -c Release -- --network-features
 ```
 
 Driver tests generate traffic only to documentation addresses `203.0.113.10` / `203.0.113.11` at declared ports and local fake proxies. Lower-priority test filters consume DIRECT test traffic. Wildcard tests select TCP/UDP 7446 and the unique test executable; fragments are additionally captured. Observation fixtures are restricted to test PIDs. Tests do not change system routes.
 
-The Whale suite uses a separate headless Whale profile, a local HTTP test peer, and a real ProxyWin GUI with isolated encrypted settings. Its rule selects `whale.exe`, `203.0.113.10`, TCP port `18080`; a lower-priority sink prevents test packets leaving the host. It exercises 20 Apply/Stop cycles, byte-checked transfers, sustained traffic, and both standard window close (X/WM_CLOSE) and forced process termination during traffic. Read-only WinDivert REFLECT events verify that the GUI's capture/monitor handles close. The suite preserves the regular user profile and existing application instances. A shared WinDivert driver service may remain loaded even when the tested GUI owns no capture handles; the suite does not uninstall it. Results go to the printed `artifacts/whale-*` directory. These local measurements are not an Internet throughput guarantee.
+The Whale suite uses a separate headless Whale profile, a local HTTP test peer, and a real ProxyWin GUI with isolated encrypted settings. Its rule selects `whale.exe`, `203.0.113.10`, TCP port `18080`; a lower-priority sink prevents test packets leaving the host. It exercises 20 Apply/Stop cycles, byte-checked transfers, sustained traffic, and both standard window close (X/WM_CLOSE) and forced process termination during traffic. Read-only WinDivert REFLECT events verify that the GUI's capture/monitor handles close. The suite preserves the regular user profile and existing application instances. Its own test sink deliberately keeps the shared driver in use, so the separate `Test-Unload.ps1` suite verifies actual service unloading without that sink. Results go to the printed `artifacts/whale-*` directory. These local measurements are not an Internet throughput guarantee.
 
 Do not change the global PowerShell execution policy just to run the scripts. Where necessary, use a reviewed, process-local policy exception.
 

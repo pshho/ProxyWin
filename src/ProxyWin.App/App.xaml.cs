@@ -19,6 +19,11 @@ public partial class App : Application
         CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.CurrentUICulture;
         base.OnStartup(e);
+        if (e.Args is ["--driver-cleanup", var parentId, var parentStarted, var readyEvent, var cleanupReport])
+        {
+            Shutdown(await DriverCleanupGuard.RunAsync(parentId, parentStarted, readyEvent, cleanupReport));
+            return;
+        }
         if (e.Args is ["--picker-test", var pickerReport])
         {
             var directory = Path.GetDirectoryName(Path.GetFullPath(pickerReport))!;

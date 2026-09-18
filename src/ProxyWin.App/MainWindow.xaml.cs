@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private bool resolving, checkingUpdates;
     private readonly CancellationTokenSource lifetime = new();
     private AvailableUpdate? availableUpdate;
+    private Task? cleanupGuard;
     private readonly ConcurrentQueue<string> pendingLogs = new();
     private readonly ObservableCollection<string> logs = [];
     private readonly ObservableCollection<ObservedConnection> observations = [];
@@ -40,7 +41,7 @@ public partial class MainWindow : Window
         this.resolveDestinations = resolveDestinations;
         ProcessPicker.Attach(ProcessBox);
         engine.Log += QueueLog;
-        engine.Exited += () => Dispatcher.BeginInvoke(() => { if (!closing) Refresh(); });
+        engine.Exited += () => Dispatcher.BeginInvoke(async () => { if (!closing) { await UnloadDriverAsync(); Refresh(); } });
         LogList.ItemsSource = logs;
         observationView = CollectionViewSource.GetDefaultView(observations);
         observationView.Filter = MatchesObservationFilter;
@@ -175,11 +176,24 @@ public partial class MainWindow : Window
                 _ = new CapturePlan(profile);
                 using var identity = WindowsIdentity.GetCurrent();
                 if (!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator)) throw new InvalidOperationException("Run ProxyWin as administrator.");
-                store.Save(profile); await engine.StartAsync(profile);
+                store.Save(profile); await EnsureCleanupGuardAsync();
+                if (closing) return;
+                await engine.StartAsync(profile);
             }
         }
-        catch (Exception ex) { Error(ex); }
-        finally { busy = false; Refresh(); }
+        catch (Exception ex) { if (!closing) Error(ex); }
+        finally { if (!engine.IsRunning) await UnloadDriverAsync(); busy = false; if (!closing) Refresh(); }
+    }
+    private Task EnsureCleanupGuardAsync()
+    {
+        if (cleanupGuard?.IsFaulted == true) cleanupGuard = null;
+        return cleanupGuard ??= DriverCleanupGuard.StartAsync(store.DirectoryPath);
+    }
+    private async Task UnloadDriverAsync()
+    {
+        if (smokeMode || cleanupGuard is null) return;
+        if (engine.IsRunning || observer.IsRunning) { QueueLog("WinDivert remains loaded while routing or monitoring is active."); return; }
+        QueueLog((await DriverService.TryUnloadAsync()).Message);
     }
     private void ClearLogs(object sender, RoutedEventArgs e) { pendingLogs.Clear(); logs.Clear(); }
     private async void CheckUpdates(object sender, RoutedEventArgs e)
@@ -230,10 +244,14 @@ public partial class MainWindow : Window
         try
         {
             if (observer.IsRunning) { await observer.StopAsync(); QueueLog("Monitor stopped. Rules are unchanged."); }
-            else { await observer.StartAsync(); observedError = null; QueueLog("Monitor started. New TCP/UDP connections only; stored in memory."); }
+            else
+            {
+                await EnsureCleanupGuardAsync(); if (closing) return;
+                await observer.StartAsync(); observedError = null; QueueLog("Monitor started. New TCP/UDP connections only; stored in memory.");
+            }
         }
-        catch (Exception ex) { Error(ex); }
-        finally { observerBusy = false; RefreshObservationControls(); }
+        catch (Exception ex) { if (!closing) Error(ex); }
+        finally { if (!observer.IsRunning) await UnloadDriverAsync(); observerBusy = false; if (!closing) RefreshObservationControls(); }
     }
     private void AddObservation(ObservedConnection connection)
     {
@@ -381,7 +399,12 @@ public partial class MainWindow : Window
         if (closed) return; e.Cancel = true; if (closing) return;
         closing = true; lifetime.Cancel(); IsEnabled = false;
         try { try { await observer.DisposeAsync(); } finally { await engine.DisposeAsync(); } } catch (Exception ex) { Error(ex); }
-        finally { timer.Stop(); closed = true; Close(); }
+        finally
+        {
+            if (cleanupGuard is not null)
+                try { await cleanupGuard; } catch (Exception ex) { QueueLog($"Cleanup guard unavailable: {ex.GetType().Name}."); }
+            await UnloadDriverAsync(); timer.Stop(); closed = true; Close();
+        }
     }
 
     internal async Task VerifyProcessCaretAsync()
