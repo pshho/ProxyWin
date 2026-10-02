@@ -122,6 +122,17 @@ await Test("Domain destination resolution, mixed IPs, IDN, failures and cancella
 await Test("Update versions, trusted release links and HTTP failure handling", FeatureTests.Updates);
 await Test("Update TCP socket ownership, IPv4/IPv6, disposal and failed-connect cleanup", ApplicationConnectionTests.Lifetime);
 await Test("HTTP CONNECT status retained without response bodies or credentials", HttpFailureTests.StatusCodes);
+await Test("Profile path survives working-directory changes", CoreAvailabilityTests.ProfilePathStability);
+await Test("CIDR boundaries and allocation-free repeated matching", CoreAvailabilityTests.NetworkMatching);
+await Test("Local proxy ownership distinguishes address, family and port", SocketOwnerAvailabilityTests.EndpointMatching);
+await Test("Actual IPv4/IPv6 and dual-mode local proxy listeners are identified", SocketOwnerAvailabilityTests.ActualListeners);
+await Test("HTTP CONNECT accepts successful 2xx and preserves initial tunnel bytes", AvailabilityTests.HttpSuccess);
+await Test("HTTP CONNECT consumes interim responses before the tunnel", AvailabilityTests.HttpInterim);
+await Test("HTTP CONNECT accepts a complete header at its size limit", AvailabilityTests.HttpHeaderBoundary);
+await Test("Cancelled SOCKS5/HTTP handshakes release registrations", AvailabilityTests.CancelHandshakes);
+await Test("128 concurrent-wave TCP relays preserve payload, EOF and byte counts", AvailabilityTests.ConcurrentRelays);
+await Test("Repeated UDP queue cancellation restores all global budget", AvailabilityTests.UdpCancellationBudget);
+await Test("TCP mapping capacity, unique ports and expiry recovery", AvailabilityTests.TcpCapacityRecovery);
 
 await Test("IP/CIDR and port boundaries", () => Sync(() =>
 {

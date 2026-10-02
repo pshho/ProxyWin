@@ -10,8 +10,14 @@ public sealed class CapturePlan
         public bool Contains(IPAddress address)
         {
             if (address.AddressFamily != Start.AddressFamily) return false;
-            var bytes = address.GetAddressBytes();
-            return bytes.AsSpan().SequenceCompareTo(Start.GetAddressBytes()) >= 0 && bytes.AsSpan().SequenceCompareTo(End.GetAddressBytes()) <= 0;
+            Span<byte> addressBytes = stackalloc byte[16];
+            Span<byte> boundBytes = stackalloc byte[16];
+            address.TryWriteBytes(addressBytes, out var addressLength);
+            Start.TryWriteBytes(boundBytes, out var boundLength);
+            var value = addressBytes[..addressLength];
+            if (value.SequenceCompareTo(boundBytes[..boundLength]) < 0) return false;
+            End.TryWriteBytes(boundBytes, out boundLength);
+            return value.SequenceCompareTo(boundBytes[..boundLength]) <= 0;
         }
         public string Filter => $"({(Start.AddressFamily == AddressFamily.InterNetwork ? "ip" : "ipv6")} and {(Start.AddressFamily == AddressFamily.InterNetwork ? "ip" : "ipv6")}.DstAddr >= {Start} and {(Start.AddressFamily == AddressFamily.InterNetwork ? "ip" : "ipv6")}.DstAddr <= {End})";
     }

@@ -1,0 +1,1 @@
+PASS: WPF process typing preserves text, caret and selection.

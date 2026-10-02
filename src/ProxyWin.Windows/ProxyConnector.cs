@@ -64,18 +64,35 @@ public static class ProxyConnector
                 await connection.Stream.WriteAsync(request, timeout.Token);
                 // Do not over-read tunnel bytes which can immediately follow the headers.
                 var header = new byte[16384]; var count = 0;
-                while (count < header.Length)
+                while (true)
                 {
-                    await connection.Stream.ReadExactlyAsync(header.AsMemory(count, 1), timeout.Token); count++;
-                    if (count >= 4 && header.AsSpan(count - 4, 4).SequenceEqual("\r\n\r\n"u8)) break;
+                    var start = count; var complete = false;
+                    while (count < header.Length)
+                    {
+                        await connection.Stream.ReadExactlyAsync(header.AsMemory(count, 1), timeout.Token); count++;
+                        if (count - start >= 4 && header.AsSpan(count - 4, 4).SequenceEqual("\r\n\r\n"u8)) { complete = true; break; }
+                    }
+                    var firstLine = Encoding.ASCII.GetString(header, start, count - start).Split("\r\n")[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (!complete || firstLine.Length < 2 || firstLine[0] is not ("HTTP/1.0" or "HTTP/1.1")
+                        || firstLine[1].Length != 3 || !int.TryParse(firstLine[1], out var status) || status is < 100 or > 599)
+                        throw new HttpConnectException(null);
+                    // Interim responses precede the final reply. Keep one total header
+                    // budget and timeout; 101 cannot establish a CONNECT tunnel.
+                    if (status is >= 100 and < 200 && status != 101) continue;
+                    if (status is < 200 or >= 300) throw new HttpConnectException(status);
+                    break;
                 }
-                var firstLine = Encoding.ASCII.GetString(header, 0, count).Split("\r\n")[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                if (count == header.Length || firstLine.Length < 2 || !firstLine[0].StartsWith("HTTP/1.", StringComparison.Ordinal)
-                    || !int.TryParse(firstLine[1], out var status) || status is < 100 or > 599)
-                    throw new HttpConnectException(null);
-                if (status != 200) throw new HttpConnectException(status);
             }
             return connection;
+        }
+        // Windows can surface cancellation as an aborted overlapped read instead
+        // of OperationCanceledException. Preserve cancellation semantics without
+        // classifying unrelated protocol or socket failures as cancellation.
+        catch (IOException ex) when (timeout.IsCancellationRequested
+            && ex.InnerException is SocketException { SocketErrorCode: SocketError.OperationAborted })
+        {
+            connection.Dispose();
+            throw new OperationCanceledException("Proxy handshake was cancelled.", ex, timeout.Token);
         }
         catch (IOException ex) when (connected) { connection.Dispose(); throw new ProxyHandshakeException(proxy.Kind, ex); }
         catch { connection.Dispose(); throw; }
