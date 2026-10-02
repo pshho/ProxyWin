@@ -83,7 +83,10 @@ internal static class AvailabilityTests
                 await peer.GetStream().ReadExactlyAsync(first, watchdog.Token);
                 stop.Cancel();
                 try { using var unexpected = await opening; throw new Exception("Cancelled handshake succeeded"); }
-                catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+                catch (OperationCanceledException ex) when (stop.IsCancellationRequested)
+                {
+                    Require(ex.CancellationToken.IsCancellationRequested, "Handshake cancellation lost its cancelled token");
+                }
                 Require(bypass.Count == 0, "Cancelled handshake retained bypass registration");
             }
         }

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Runtime.CompilerServices;
 using ProxyWin.Core;
 using ProxyWin.Windows;
 
@@ -63,12 +64,21 @@ internal static class CoreAvailabilityTests
         var ipv4Address = IPAddress.Parse("192.168.10.23");
         var ipv6Address = IPAddress.Parse("2001:db8:abcd:1234::5");
         const int samples = 20_000;
+        // Warm the same optimized loop that is measured, rather than switching
+        // from a separate warm-up loop into a tiered/OSR measurement loop.
+        _ = MeasureMatches(ipv4, ipv6, ipv4Address, ipv6Address, samples);
+        var (matches, allocated) = MeasureMatches(ipv4, ipv6, ipv4Address, ipv6Address, samples);
+        Console.WriteLine($"  Network.Contains: {allocated} allocated bytes for {samples * 2} warmed calls");
+        if (matches != samples * 2) throw new Exception("CIDR match changed during allocation measurement");
+        if (allocated >= 4_096) throw new Exception($"Network.Contains allocated {allocated} bytes for warmed matches");
+        return Task.CompletedTask;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+    private static (int Matches, long Allocated) MeasureMatches(CapturePlan.Network ipv4, CapturePlan.Network ipv6,
+        IPAddress ipv4Address, IPAddress ipv6Address, int samples)
+    {
         var matches = 0;
-        for (var i = 0; i < 2_000; i++)
-        {
-            if (ipv4.Contains(ipv4Address)) matches++;
-            if (ipv6.Contains(ipv6Address)) matches++;
-        }
         var before = GC.GetAllocatedBytesForCurrentThread();
         for (var i = 0; i < samples; i++)
         {
@@ -76,9 +86,6 @@ internal static class CoreAvailabilityTests
             if (ipv6.Contains(ipv6Address)) matches++;
         }
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-        Console.WriteLine($"  Network.Contains: {allocated} allocated bytes for {samples * 2} warmed calls");
-        if (matches != (2_000 + samples) * 2) throw new Exception("CIDR match changed during allocation measurement");
-        if (allocated >= 4_096) throw new Exception($"Network.Contains allocated {allocated} bytes for warmed matches");
-        return Task.CompletedTask;
+        return (matches, allocated);
     }
 }

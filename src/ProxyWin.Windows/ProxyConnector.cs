@@ -85,6 +85,15 @@ public static class ProxyConnector
             }
             return connection;
         }
+        // Windows can surface cancellation as an aborted overlapped read instead
+        // of OperationCanceledException. Preserve cancellation semantics without
+        // classifying unrelated protocol or socket failures as cancellation.
+        catch (IOException ex) when (timeout.IsCancellationRequested
+            && ex.InnerException is SocketException { SocketErrorCode: SocketError.OperationAborted })
+        {
+            connection.Dispose();
+            throw new OperationCanceledException("Proxy handshake was cancelled.", ex, timeout.Token);
+        }
         catch (IOException ex) when (connected) { connection.Dispose(); throw new ProxyHandshakeException(proxy.Kind, ex); }
         catch { connection.Dispose(); throw; }
     }
