@@ -41,6 +41,8 @@ Get-FileHash .\ProxyWin-0.5.0-win-x64.zip -Algorithm SHA256
 
 The [2026-09-18 feature and driver report](docs/verification/2026-09-18-features-driver.md) records the newer domain/update checks, elevated driver tests, real Whale soak and normal/forced exit results. It distinguishes capture-handle cleanup from the shared driver's service lifetime.
 
+The [2026-10-03 availability report](docs/verification/2026-10-03-availability.md) covers the expanded regression suite, HTTP CONNECT compatibility, failed-save recovery, idle-window close, local proxy ownership, CIDR allocation measurements, and Windows driver/GUI validation. It includes the reproduced failures and the remaining verification limits.
+
 ## Quick start
 
 1. Use **+ Server** to add a SOCKS5 or HTTP proxy. DIRECT and BLOCK need no server.

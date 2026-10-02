@@ -28,9 +28,25 @@ internal static class SocketOwners
     {
         var local = NetworkInterface.GetAllNetworkInterfaces().SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(a => a.Address)
             .Concat([IPAddress.Loopback, IPAddress.IPv6Loopback]).ToHashSet();
-        var ports = servers.Where(s => local.Contains(s.Address)).Select(s => s.Port).ToHashSet();
-        if (ports.Count == 0) return [];
-        return Read(false, 2).Concat(Read(false, 23)).Where(row => row.Listening && ports.Contains(row.Port)).Select(row => row.Pid).ToHashSet();
+        var endpoints = servers.Where(s => IPAddress.IsLoopback(Normalize(s.Address)) || local.Contains(Normalize(s.Address))).ToArray();
+        if (endpoints.Length == 0) return [];
+        return MatchLocalProxyOwners(Read(false, 2).Concat(Read(false, 23)), endpoints);
+    }
+
+    internal static HashSet<int> MatchLocalProxyOwners(IEnumerable<Owner> rows, IEnumerable<IPEndPoint> endpoints)
+    {
+        var targets = endpoints.Select(endpoint => (Address: Normalize(endpoint.Address), endpoint.Port)).ToArray();
+        return rows.Where(row => row.Listening && targets.Any(target => row.Port == target.Port && MatchesLocalAddress(row.Local, target.Address)))
+            .Select(row => row.Pid).ToHashSet();
+    }
+
+    private static IPAddress Normalize(IPAddress address) => address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+
+    private static bool MatchesLocalAddress(IPAddress listener, IPAddress endpoint)
+    {
+        listener = Normalize(listener);
+        return listener.Equals(endpoint) || listener.AddressFamily == endpoint.AddressFamily
+            && (listener.Equals(IPAddress.Any) || listener.Equals(IPAddress.IPv6Any));
     }
 
     private static IEnumerable<Owner> Read(bool udp, int family)

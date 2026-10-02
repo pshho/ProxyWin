@@ -6,9 +6,13 @@ using ProxyWin.Core;
 
 namespace ProxyWin.Windows;
 
-public sealed class ProfileStore(string directory)
+public sealed class ProfileStore
 {
-    public string DirectoryPath => Path.GetFullPath(directory);
+    private readonly string directory;
+
+    public ProfileStore(string directory) => this.directory = Path.GetFullPath(directory);
+
+    public string DirectoryPath => directory;
     public static string DefaultDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ProxyWin");
     private string FilePath => Path.Combine(directory, "profile.dat");
 

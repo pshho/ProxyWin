@@ -1,0 +1,6 @@
+PASS active capture prevents shared-service unload: WinDivert retained: capture or monitoring is still in use.
+PASS idle service unload, confirmed STOPPED/absent
+PASS X/WM_CLOSE: service STOPPED/absent, guard report after 139.8 ms; 2026-10-03T01:17:41.3823393+09:00 WinDivert is not loaded.
+PASS TerminateProcess: service STOPPED/absent, guard report after 122.2 ms; 2026-10-03T01:17:43.1492962+09:00 WinDivert unloaded.
+PASS close after Apply dispatch (● Working): no late reopen, cleanup completed, service STOPPED/absent
+PASS six Apply/Stop unload/reload cycles, monitor retention, normal/forced exit; final shared driver STOPPED/absent

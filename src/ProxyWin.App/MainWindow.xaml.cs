@@ -153,7 +153,9 @@ public partial class MainWindow : Window
     private void ToggleRule(object sender, RoutedEventArgs e)
     {
         if (!CanEdit || sender is not CheckBox { DataContext: RuleRow row } check) return;
-        var index = profile.Rules.IndexOf(row.Rule); Change(p => p.Rules[index].Enabled = check.IsChecked == true);
+        var index = profile.Rules.IndexOf(row.Rule);
+        if (!Change(p => p.Rules[index].Enabled = check.IsChecked == true))
+            check.SetCurrentValue(CheckBox.IsCheckedProperty, row.Rule.Enabled);
     }
     private void MoveRuleUp(object sender, RoutedEventArgs e) => MoveRule(-1);
     private void MoveRuleDown(object sender, RoutedEventArgs e) => MoveRule(1);
@@ -308,7 +310,7 @@ public partial class MainWindow : Window
             var index = profile.Rules.FindIndex(r => SameRule(r, rule));
             if (index >= 0)
             {
-                if (!profile.Rules[index].Enabled) Change(p => p.Rules[index].Enabled = true);
+                if (!profile.Rules[index].Enabled && !Change(p => p.Rules[index].Enabled = true)) return;
                 QueueLog("Existing rule selected.");
             }
             else
@@ -409,7 +411,11 @@ public partial class MainWindow : Window
         {
             if (cleanupGuard is not null)
                 try { await cleanupGuard; } catch (Exception ex) { QueueLog($"Cleanup guard unavailable: {ex.GetType().Name}."); }
-            await UnloadDriverAsync(); timer.Stop(); closed = true; Close();
+            await UnloadDriverAsync(); timer.Stop();
+            // Idle cleanup can finish synchronously. Let the cancelled Closing
+            // event unwind before requesting another close from the dispatcher.
+            await Dispatcher.Yield(DispatcherPriority.Background);
+            closed = true; Close();
         }
     }
 

@@ -45,9 +45,12 @@ public partial class App : Application
             {
                 Directory.CreateDirectory(output);
                 File.WriteAllText(Path.Combine(output, "result.txt"), "RUNNING");
+                Exception? dispatcherFailure = null;
                 DispatcherUnhandledException += (_, error) =>
                 {
+                    dispatcherFailure = error.Exception;
                     File.WriteAllText(Path.Combine(output, "result.txt"), error.Exception.ToString());
+                    File.WriteAllText(Path.Combine(output, "dispatcher-error.txt"), error.Exception.ToString());
                     error.Handled = true;
                     Shutdown(1);
                 };
@@ -110,7 +113,10 @@ public partial class App : Application
                 domainEditor.ContentRendered += (_, _) => ((Button)domainEditor.FindName("SaveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 if (domainEditor.ShowDialog() != true || domainEditor.Result is null || domainEditor.Result.Destinations.Contains("fixture.example")
                     || RuleParser.Networks(domainEditor.Result.Destinations).Length < 2) throw new InvalidOperationException("Domain editor save failed.");
-                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: English compact/minimum window and editors, comma-separated rule addition and editing, domain conversion in quick-add and rule editor (injected DNS fixture), update notification/current-version/failure states with safe error details, DIRECT/PROXY/BLOCK and process-wide wildcard quick-add, rule order/toggle, observation-to-rule, duplicate prevention, substring process search preserving manual names, and loaded app icon; no driver opened; no user profile modified.");
+                var availability = new MainWindow(new ProfileStore(Path.Combine(output, "save-failure-profile"))) { Owner = smoke };
+                await availability.VerifySaveFailuresAsync();
+                if (dispatcherFailure is not null) throw new InvalidOperationException("GUI dispatcher failed during smoke validation.", dispatcherFailure);
+                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: English compact/minimum window and editors, comma-separated rule addition and editing, domain conversion in quick-add and rule editor (injected DNS fixture), update notification/current-version/failure states with safe error details, DIRECT/PROXY/BLOCK and process-wide wildcard quick-add, rule order/toggle, observation-to-rule, duplicate prevention, substring process search preserving manual names, loaded app icon, actual save failures preserve checkbox/profile state and suppress success messages, and recovery after unlocking the profile; no driver opened; no user profile modified.");
                 Shutdown(0);
             }
             catch (Exception ex) { File.WriteAllText(Path.Combine(output, "result.txt"), ex.ToString()); Shutdown(1); }
