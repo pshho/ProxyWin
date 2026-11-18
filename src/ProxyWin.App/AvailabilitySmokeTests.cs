@@ -13,7 +13,7 @@ public partial class MainWindow
     // The smoke runner supplies an isolated profile and opens no driver handles.
     internal async Task VerifySaveFailuresAsync()
     {
-        lifetime.Cancel(); // Keep this persistence fixture independent of update networking.
+        lifetime.Cancel(); // 저장 실패 검증만 다루므로 진행 중인 비동기 작업과 분리한다.
         var observed = new ObservedConnection(DateTimeOffset.Now, 123, "fixture.exe", IPAddress.Parse("192.0.2.1"),
             51000, IPAddress.Parse("203.0.113.11"), 443, Transport.Tcp, false);
         var disabled = observed.CreateRule("", true, RuleAction.Block) with { Enabled = false };
@@ -50,7 +50,7 @@ public partial class MainWindow
             AddObservation(observed); ObservationGrid.SelectedItem = observed;
             pendingLogs.Clear(); logs.Clear();
             DismissExpectedError(); AddObservedRule(this, new RoutedEventArgs());
-            if (profile.Rules[1].Enabled || pendingLogs.Concat(logs).Any(line => line.Contains("Existing rule selected.", StringComparison.Ordinal)))
+            if (profile.Rules[1].Enabled || pendingLogs.Concat(logs).Any(line => line.Contains(ExistingRuleMessage, StringComparison.Ordinal)))
                 errors.Add("Failed observed-rule save reported success or changed the profile.");
             if (!File.ReadAllBytes(path).SequenceEqual(saved)) errors.Add("Failed save changed the encrypted profile.");
             if (Directory.EnumerateFiles(store.DirectoryPath, "*.tmp").Any()) errors.Add("Failed save left a temporary file.");

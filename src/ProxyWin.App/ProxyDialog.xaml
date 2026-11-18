@@ -1,22 +1,32 @@
 <Window x:Class="ProxyWin.App.ProxyDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Proxy server" Width="450" Height="365" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Style="{StaticResource {x:Type Window}}">
-  <Grid Margin="16"><Grid.RowDefinitions><RowDefinition /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        Title="프록시 서버" Width="480" SizeToContent="Height" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Style="{StaticResource {x:Type Window}}">
+  <Grid Margin="16"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
     <StackPanel>
-      <TextBlock Text="Proxy server" FontSize="18" FontWeight="Bold" />
+      <TextBlock Text="프록시 서버" FontSize="18" FontWeight="Bold" />
+      <TextBlock Text="PROXY 규칙이 트래픽을 보낼 서버입니다. 잘 모르겠으면 아래 빠른 설정을 누르세요." Style="{StaticResource Note}" Margin="0,3,0,0" />
+      <Border Background="{StaticResource AccentSoft}" CornerRadius="7" Padding="10,8" Margin="0,10,0,2">
+        <StackPanel>
+          <TextBlock Text="빠른 설정" FontWeight="SemiBold" Margin="0,0,0,6" />
+          <WrapPanel>
+            <Button Content="Burp Suite (HTTP · 127.0.0.1:8080)" Click="UseBurp" Margin="0,0,6,0" ToolTip="Burp의 기본 Proxy listener(127.0.0.1:8080)를 채웁니다. Burp에서 포트를 바꿨다면 포트만 고치세요." />
+            <Button Content="로컬 SOCKS5 (127.0.0.1:1080)" Click="UseSocks" ToolTip="이 PC에서 실행 중인 SOCKS5 프록시(기본 1080 포트)를 채웁니다." />
+          </WrapPanel>
+        </StackPanel>
+      </Border>
       <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
-        <StackPanel Margin="0,0,8,0"><TextBlock Text="Name" Style="{StaticResource Label}" /><TextBox x:Name="NameBox" MaxLength="80" /></StackPanel>
-        <StackPanel Grid.Column="1"><TextBlock Text="Type" Style="{StaticResource Label}" /><ComboBox x:Name="KindBox"><ComboBoxItem Content="SOCKS5 · TCP/UDP" /><ComboBoxItem Content="HTTP · TCP" /></ComboBox></StackPanel>
+        <StackPanel Margin="0,0,8,0"><TextBlock Text="이름" Style="{StaticResource Label}" /><TextBox x:Name="NameBox" MaxLength="80" Tag="예: Burp (비우면 자동)" /></StackPanel>
+        <StackPanel Grid.Column="1"><TextBlock Text="종류" Style="{StaticResource Label}" /><ComboBox x:Name="KindBox" SelectionChanged="KindChanged"><ComboBoxItem Content="SOCKS5 · TCP/UDP" /><ComboBoxItem Content="HTTP · TCP 전용 (Burp 등)" /></ComboBox></StackPanel>
       </Grid>
-      <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="84" /></Grid.ColumnDefinitions>
-        <StackPanel Margin="0,0,8,0"><TextBlock Text="Host" Style="{StaticResource Label}" /><TextBox x:Name="HostBox" MaxLength="253" /></StackPanel>
-        <StackPanel Grid.Column="1"><TextBlock Text="Port" Style="{StaticResource Label}" /><TextBox x:Name="PortBox" MaxLength="5" /></StackPanel>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="96" /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,8,0"><TextBlock Text="호스트 (IP 또는 도메인)" Style="{StaticResource Label}" /><TextBox x:Name="HostBox" MaxLength="253" Tag="예: 127.0.0.1 (이 PC에서 실행 중이면)" /></StackPanel>
+        <StackPanel Grid.Column="1"><TextBlock Text="포트" Style="{StaticResource Label}" /><TextBox x:Name="PortBox" MaxLength="5" Tag="예: 8080" /></StackPanel>
       </Grid>
       <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
-        <StackPanel Margin="0,0,8,0"><TextBlock Text="Username (optional)" Style="{StaticResource Label}" /><TextBox x:Name="UserBox" MaxLength="255" /></StackPanel>
-        <StackPanel Grid.Column="1"><TextBlock Text="Password (optional)" Style="{StaticResource Label}" /><PasswordBox x:Name="PasswordBox" MaxLength="255" /></StackPanel>
+        <StackPanel Margin="0,0,8,0"><TextBlock Text="사용자명 (선택)" Style="{StaticResource Label}" /><TextBox x:Name="UserBox" MaxLength="255" Tag="인증이 없으면 비워 두세요" /></StackPanel>
+        <StackPanel Grid.Column="1"><TextBlock Text="비밀번호 (선택)" Style="{StaticResource Label}" /><PasswordBox x:Name="PasswordBox" MaxLength="255" /></StackPanel>
       </Grid>
-      <TextBlock Text="Credentials are encrypted for your Windows account.&#x0a;UDP requires SOCKS5 UDP ASSOCIATE." FontSize="10" Foreground="{StaticResource Muted}" Margin="0,10,0,0" LineHeight="16" />
+      <TextBlock Style="{StaticResource Note}" Margin="0,12,0,0" LineHeight="17" Text="• 127.0.0.1은 이 PC를 뜻합니다. 프록시 프로그램(Burp 등)이 이 PC에서 실행 중이어야 합니다.&#x0a;• Burp·Fiddler 같은 HTTP 프록시는 TCP만 보낼 수 있습니다. UDP는 SOCKS5가 필요합니다.&#x0a;• 사용자명·비밀번호는 현재 Windows 계정으로 암호화되어 저장됩니다." />
     </StackPanel>
-    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="Cancel" IsCancel="True" Margin="0,0,6,0" /><Button Content="Save" Style="{StaticResource Primary}" IsDefault="True" Click="Save" /></StackPanel>
+    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0"><Button Content="취소" IsCancel="True" Margin="0,0,6,0" MinWidth="72" /><Button Content="저장" Style="{StaticResource Primary}" IsDefault="True" Click="Save" MinWidth="72" /></StackPanel>
   </Grid>
 </Window>

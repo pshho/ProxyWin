@@ -44,7 +44,7 @@ internal static class UnloadTests
                     ((InvokePattern)Find(window, "ToggleButton").GetCurrentPattern(InvokePattern.Pattern)).Invoke();
                     // UI Automation queues Invoke. Wait until Apply has actually
                     // entered its handler before testing close-during-start.
-                    await Wait.Until(() => Text(window, "StatusText").Contains("Working") || Text(window, "StatusText").Contains("Active"), "Apply dispatched");
+                    await Wait.Until(() => Text(window, "StatusText").Contains("처리 중") || Text(window, "StatusText").Contains("적용 중"), "Apply dispatched");
                     var phase = Text(window, "StatusText");
                     Require(child.CloseMainWindow(), "Close immediately after Apply");
                     await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(20));
@@ -55,20 +55,20 @@ internal static class UnloadTests
                 for (var cycle = 0; cycle < 3; cycle++)
                 {
                     await Click(window, "ToggleButton");
-                    await Wait.Until(() => Text(window, "StatusText").Contains("Active") && !DriverService.IsStopped(), "Apply reloads driver", 20);
+                    await Wait.Until(() => Text(window, "StatusText").Contains("적용 중") && !DriverService.IsStopped(), "Apply reloads driver", 20);
                     await Click(window, "ToggleButton");
-                    await Wait.Until(() => Text(window, "StatusText").Contains("Stopped") && DriverService.IsStopped(), "Stop unloads driver", 20);
+                    await Wait.Until(() => Text(window, "StatusText").Contains("중지됨") && DriverService.IsStopped(), "Stop unloads driver", 20);
                 }
                 await Click(window, "ToggleButton");
-                await Wait.Until(() => Text(window, "StatusText").Contains("Active"), "Active before monitoring");
+                await Wait.Until(() => Text(window, "StatusText").Contains("적용 중"), "Active before monitoring");
                 await Click(window, "ObserveButton");
                 await Wait.Until(() => Text(window, "ObserveButton").Contains("Stop monitor"), "Monitor active");
                 await Click(window, "ToggleButton");
-                await Wait.Until(() => Text(window, "StatusText").Contains("Stopped"), "Routing stopped");
+                await Wait.Until(() => Text(window, "StatusText").Contains("중지됨"), "Routing stopped");
                 Require(!DriverService.IsStopped(), "Monitor keeps shared driver loaded");
                 await Click(window, "ObserveButton");
                 await Wait.Until(DriverService.IsStopped, "Last monitor stop unloads driver");
-                await Click(window, "ToggleButton"); await Wait.Until(() => Text(window, "StatusText").Contains("Active"), "Active before exit");
+                await Click(window, "ToggleButton"); await Wait.Until(() => Text(window, "StatusText").Contains("적용 중"), "Active before exit");
                 var watch = Stopwatch.StartNew();
                 if (mode == 0) Require(child.CloseMainWindow(), "Normal window close"); else child.Kill();
                 await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));

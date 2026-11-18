@@ -59,11 +59,11 @@ try
     for (var i = 0; i < 20; i++)
     {
         var watch = Stopwatch.StartNew(); await Invoke(root, "ToggleButton");
-        await Wait.Until(() => handles.Count(app.Id, 0) == 1 && Text(root, "StatusText").Contains("Active"), "Apply active");
+        await Wait.Until(() => handles.Count(app.Id, 0) == 1 && Text(root, "StatusText").Contains("적용 중"), "Apply active");
         starts.Add(watch.Elapsed.TotalMilliseconds);
         await whale.Transfer(diverted);
         watch.Restart(); await Invoke(root, "ToggleButton");
-        await Wait.Until(() => handles.Count(app.Id, 0) == 0 && Text(root, "StatusText").Contains("Stopped"), "Stop released NETWORK handle");
+        await Wait.Until(() => handles.Count(app.Id, 0) == 0 && Text(root, "StatusText").Contains("중지됨"), "Stop released NETWORK handle");
         stops.Add(watch.Elapsed.TotalMilliseconds);
         Require(handles.Count(app.Id, 2) == 1, "Stop must retain monitor until explicitly stopped");
     }
@@ -99,7 +99,7 @@ try
     {
         if (mode != 0) { app = await StartApp(); root = AutomationElement.FromHandle(app.MainWindowHandle); }
         await Invoke(root, "ObserveButton"); await Invoke(root, "ToggleButton");
-        await Wait.Until(() => handles.Count(app.Id) == 2 && Text(root, "StatusText").Contains("Active"), "Exit-test capture active");
+        await Wait.Until(() => handles.Count(app.Id) == 2 && Text(root, "StatusText").Contains("적용 중"), "Exit-test capture active");
         await whale.Transfer(diverted);
         await whale.Evaluate("window.completed=0; window.pending=Array.from({length:8},()=>fetch('" + diverted + "/bytes/33554432?'+Math.random(),{signal:AbortSignal.timeout(5000)}).then(r=>r.arrayBuffer()).then(()=>true,()=>false).finally(()=>window.completed++)); 'started'");
         await Task.Delay(100);

@@ -7,31 +7,62 @@ using ProxyWin.Core;
 
 namespace ProxyWin.Windows;
 
+// 로컬 프록시(예: 127.0.0.1의 Burp) 프로세스 PID 집합을 짧게 캐시한다.
+// 새 흐름마다 TCP 테이블을 읽으면 단일 캡처 스레드가 막혀 WinDivert 큐가 넘친다.
+internal sealed class LocalProxyOwnerCache(IPEndPoint[] endpoints)
+{
+    private const long Lifetime = 1000;
+    private readonly object sync = new();
+    private HashSet<int> owners = [];
+    private long refreshed = long.MinValue / 2;
+    public bool Configured => endpoints.Length > 0;
+    public HashSet<int> Current()
+    {
+        if (endpoints.Length == 0) return owners;
+        lock (sync)
+        {
+            var now = Environment.TickCount64;
+            if (now - refreshed >= Lifetime) { owners = SocketOwners.LocalProxyListeners(endpoints); refreshed = now; }
+            return owners;
+        }
+    }
+}
+
 internal static class SocketOwners
 {
     internal sealed record Owner(IPAddress Local, int Port, IPAddress? Remote, int RemotePort, int Pid, bool Listening);
     public static int? Find(FlowKey key)
     {
-        var matches = Read(key.Udp, key.LocalAddress.GetAddressBytes().Length == 4 ? 2 : 23)
-            .Where(row => row.Port == key.LocalPort && (row.Local.Equals(key.LocalAddress) || row.Local.Equals(IPAddress.Any) || row.Local.Equals(IPAddress.IPv6Any))
-                && (key.Udp || (row.Remote!.Equals(key.RemoteAddress) && row.RemotePort == key.RemotePort)))
-            .Select(row => row.Pid).Distinct().Take(2).ToArray();
+        var ipv4 = key.LocalAddress.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork;
+        var matches = Match(Read(key.Udp, ipv4 ? 2 : 23), key);
+        // 듀얼모드(IPv6) 소켓의 IPv4 통신이 IPv6 테이블에 ::ffff:a.b.c.d로만 보이는 경우를 대비해
+        // IPv4 조회가 비었을 때만 IPv6 테이블을 IPv4로 정규화해 다시 찾는다.
+        if (ipv4 && matches.Length == 0)
+            matches = Match(Read(key.Udp, 23).Select(row => row with { Local = Normalize(row.Local), Remote = row.Remote is null ? null : Normalize(row.Remote) }), key);
         return matches.Length == 1 ? matches[0] : null;
     }
+    private static int[] Match(IEnumerable<Owner> rows, FlowKey key) => rows
+        .Where(row => row.Port == key.LocalPort && (row.Local.Equals(key.LocalAddress) || row.Local.Equals(IPAddress.Any) || row.Local.Equals(IPAddress.IPv6Any))
+            && (key.Udp || (row.Remote!.Equals(key.RemoteAddress) && row.RemotePort == key.RemotePort)))
+        .Select(row => row.Pid).Distinct().Take(2).ToArray();
     public static string? Name(int? pid)
     {
         if (pid is null) return null;
         try { using var process = Process.GetProcessById(pid.Value); return process.ProcessName; }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { return null; }
     }
-    public static HashSet<int> LocalProxyOwners(IEnumerable<IPEndPoint> servers)
+    public static HashSet<int> LocalProxyOwners(IEnumerable<IPEndPoint> servers) => LocalProxyListeners(LocalEndpoints(servers));
+
+    // 이 PC 주소에 있는 프록시 서버만 고른다. 인터페이스 열거 비용이 크므로 세션 시작 시 1회만 호출한다.
+    public static IPEndPoint[] LocalEndpoints(IEnumerable<IPEndPoint> servers)
     {
         var local = NetworkInterface.GetAllNetworkInterfaces().SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(a => a.Address)
             .Concat([IPAddress.Loopback, IPAddress.IPv6Loopback]).ToHashSet();
-        var endpoints = servers.Where(s => IPAddress.IsLoopback(Normalize(s.Address)) || local.Contains(Normalize(s.Address))).ToArray();
-        if (endpoints.Length == 0) return [];
-        return MatchLocalProxyOwners(Read(false, 2).Concat(Read(false, 23)), endpoints);
+        return servers.Where(s => IPAddress.IsLoopback(Normalize(s.Address)) || local.Contains(Normalize(s.Address))).ToArray();
     }
+
+    public static HashSet<int> LocalProxyListeners(IPEndPoint[] endpoints) =>
+        endpoints.Length == 0 ? [] : MatchLocalProxyOwners(Read(false, 2).Concat(Read(false, 23)), endpoints);
 
     internal static HashSet<int> MatchLocalProxyOwners(IEnumerable<Owner> rows, IEnumerable<IPEndPoint> endpoints)
     {

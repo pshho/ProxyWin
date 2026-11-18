@@ -12,6 +12,9 @@ public readonly record struct RelayStatistics(long Uploaded, long Downloaded, lo
 
 public sealed class DivertEngine : IAsyncDisposable
 {
+    // TCP 직접 통과 판정 유지 시간 / UDP 판정 재사용 시간(포트 재사용 대비 짧게) / UDP 소유자 재검사 주기
+    private const long PassthroughLifetime = 120000, UdpDecisionLifetime = 5000, OwnerRecheck = 2000;
+    private const int PassthroughCapacity = 32768;
     private readonly SemaphoreSlim gate = new(1, 1);
     private Session? session;
     private RelayStatistics last;
@@ -24,6 +27,7 @@ public sealed class DivertEngine : IAsyncDisposable
     {
         public CapturePlan Plan { get; } = plan;
         public Dictionary<string, IPEndPoint> Servers { get; } = servers;
+        public LocalProxyOwnerCache LocalProxies { get; } = new(SocketOwners.LocalEndpoints(servers.Values));
         public CancellationTokenSource Stop { get; } = new();
         public TcpListener Listener4 { get; } = new(IPAddress.Any, 0);
         public TcpListener? Listener6 { get; } = Socket.OSSupportsIPv6 ? new(IPAddress.IPv6Any, 0) : null;
@@ -52,18 +56,20 @@ public sealed class DivertEngine : IAsyncDisposable
     public async Task StartAsync(Profile profile)
     {
         var plan = new CapturePlan(profile);
-        await gate.WaitAsync();
+        await gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (session is not null) throw new InvalidOperationException("Rules are already active.");
+            if (session is not null) throw new InvalidOperationException("이미 규칙이 적용 중입니다.");
             CheckDriver();
             var servers = new Dictionary<string, IPEndPoint>();
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             foreach (var proxy in plan.Entries.Select(e => e.Proxy).OfType<ProxyServer>().DistinctBy(p => p.Id))
             {
-                var addresses = await Dns.GetHostAddressesAsync(proxy.Host, timeout.Token);
+                IPAddress[] addresses;
+                try { addresses = await Dns.GetHostAddressesAsync(proxy.Host, timeout.Token).ConfigureAwait(false); }
+                catch (SocketException) { addresses = []; }
                 var address = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork) ?? addresses.FirstOrDefault()
-                    ?? throw new IOException($"Cannot resolve proxy '{proxy.Name}'.");
+                    ?? throw new IOException($"프록시 서버 '{proxy.Name}'의 호스트 '{proxy.Host}'를 찾을 수 없습니다. 서버 설정의 호스트를 확인하세요.");
                 servers.Add(proxy.Id, new IPEndPoint(address, proxy.Port));
             }
             var state = new Session(plan, servers);
@@ -85,11 +91,12 @@ public sealed class DivertEngine : IAsyncDisposable
                 WinDivertNative.ValidateFilter(filter);
                 state.Handle = WinDivertNative.Open(filter);
                 session = state;
-                state.Accept4 = Accept(state, state.Listener4);
-                if (state.Listener6 is not null) state.Accept6 = Accept(state, state.Listener6);
+                // 호출자가 WPF UI 스레드여도 중계 루프가 디스패처에 묶이지 않도록 스레드 풀에서 시작한다.
+                state.Accept4 = Task.Run(() => Accept(state, state.Listener4));
+                if (state.Listener6 is { } listener6) state.Accept6 = Task.Run(() => Accept(state, listener6));
                 state.Capture = Task.Factory.StartNew(() => Capture(state), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-                state.Maintenance = Maintain(state);
-                Log?.Invoke("Rules active. PROXY applies to new TCP connections.");
+                state.Maintenance = Task.Run(() => Maintain(state));
+                Log?.Invoke("규칙 적용 시작. PROXY는 지금부터 새로 맺는 연결에만 적용됩니다(이미 열린 연결은 그대로).");
             }
             catch
             {
@@ -112,11 +119,28 @@ public sealed class DivertEngine : IAsyncDisposable
 
     private async Task Accept(Session state, TcpListener listener)
     {
-        try
+        var failures = 0;
+        while (!state.Stop.IsCancellationRequested)
         {
-            while (!state.Stop.IsCancellationRequested)
+            TcpClient client;
+            try { client = await listener.AcceptTcpClientAsync(state.Stop.Token).ConfigureAwait(false); }
+            catch (Exception ex) when (state.Stop.IsCancellationRequested && ex is OperationCanceledException or SocketException or ObjectDisposedException) { return; }
+            catch (SocketException ex) when (++failures <= 32)
             {
-                var client = await listener.AcceptTcpClientAsync(state.Stop.Token); client.NoDelay = true;
+                // 큐에 있던 연결이 accept 전에 RST되는 등 연결 단위 오류는 그 연결만 버리고 계속 받는다.
+                // 연속 실패가 이어지면 리스너 자체 문제로 보고 아래 catch에서 엔진을 멈춘다.
+                Failure(state, ex);
+                if (ex.SocketErrorCode is SocketError.NoBufferSpaceAvailable or SocketError.TooManyOpenSockets)
+                {
+                    try { await Task.Delay(100, state.Stop.Token).ConfigureAwait(false); } catch (OperationCanceledException) { return; }
+                }
+                continue;
+            }
+            catch (Exception ex) { Failure(state, ex); _ = StopAfterFailure(state); return; }
+            failures = 0;
+            try
+            {
+                client.NoDelay = true;
                 var flow = state.Flows.Accept((IPEndPoint)client.Client.RemoteEndPoint!, (IPEndPoint)client.Client.LocalEndPoint!);
                 if (flow is null || !state.TcpSlots.Wait(0))
                 {
@@ -127,9 +151,13 @@ public sealed class DivertEngine : IAsyncDisposable
                 state.Tcp[flow.VirtualPort] = work;
                 _ = work.ContinueWith(_ => state.Tcp.TryRemove(flow.VirtualPort, out var removed), TaskScheduler.Default);
             }
+            catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
+            {
+                // accept 직후 상대가 끊어 소켓 설정·엔드포인트 조회가 실패한 경우: 이 연결만 정리한다.
+                client.Dispose(); Interlocked.Increment(ref state.Dropped);
+                if (!state.Stop.IsCancellationRequested) Failure(state, ex);
+            }
         }
-        catch (Exception ex) when (state.Stop.IsCancellationRequested && ex is OperationCanceledException or SocketException or ObjectDisposedException) { }
-        catch (Exception ex) { Failure(state, ex); _ = StopAfterFailure(state); }
     }
 
     private async Task RelayTcp(Session state, TcpFlow flow, TcpClient client)
@@ -139,10 +167,10 @@ public sealed class DivertEngine : IAsyncDisposable
             try
             {
                 using var proxy = await ProxyConnector.OpenAsync(flow.Route.Proxy!, state.Servers[flow.Route.Proxy!.Id],
-                    new IPEndPoint(flow.Key.RemoteAddress, flow.Key.RemotePort), state.Bypass, state.Stop.Token);
-                await ProxyConnector.RelayAsync(client, proxy, state.Count, state.Stop.Token);
+                    new IPEndPoint(flow.Key.RemoteAddress, flow.Key.RemotePort), state.Bypass, state.Stop.Token).ConfigureAwait(false);
+                await ProxyConnector.RelayAsync(client, proxy, state.Count, state.Stop.Token).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is IOException or SocketException or OperationCanceledException or ObjectDisposedException)
+            catch (Exception ex)
             {
                 if (!state.Stop.IsCancellationRequested) Failure(state, ex);
                 try { client.Client.LingerState = new LingerOption(true, 0); } catch (SocketException) { }
@@ -173,7 +201,14 @@ public sealed class DivertEngine : IAsyncDisposable
                     for (var i = 0; i < addressLength / 80 && offset < length; i++)
                     {
                         var remaining = bytes.AsSpan(offset, (int)length - offset);
-                        if (!IpPacket.TryParse(remaining, out var packet)) { Interlocked.Increment(ref state.Dropped); break; }
+                        if (!IpPacket.TryParse(remaining, out var packet))
+                        {
+                            // 해석할 수 없는 패킷 하나 때문에 배치의 나머지 정상 패킷까지 재주입되지 않고
+                            // 사라지지 않도록, 길이를 알 수 있으면 그 패킷만 버리고 다음 패킷으로 넘어간다.
+                            Interlocked.Increment(ref state.Dropped);
+                            if (!IpPacket.TryGetFrameLength(remaining, out var skipped)) break;
+                            offset += skipped; continue;
+                        }
                         var frame = remaining[..packet.Length]; var address = addresses[i];
                         var decision = ProcessPacket(state, packet, frame, ref address);
                         if (decision != 0)
@@ -197,68 +232,101 @@ public sealed class DivertEngine : IAsyncDisposable
     {
         if (packet.Fragmented)
         {
-            if (packet.Protocol is 1 or 58) return 1; // Never consume ICMP as a TCP/UDP rule.
-            Interlocked.Increment(ref state.Dropped); return 0;
+            // 조각은 포트·프로세스를 알 수 없으므로 목적지·프로토콜만으로 확정되는 판정만 따른다.
+            switch (state.Plan.ClassifyFragment(packet.Destination, packet.Protocol))
+            {
+                case FragmentDecision.Pass: return 1;
+                case FragmentDecision.Block: Interlocked.Increment(ref state.Blocked); return 0;
+                default: Interlocked.Increment(ref state.Dropped); return 0;
+            }
         }
         var key = packet.Key(bytes);
-        if (packet.Tcp && (key.LocalPort == state.Port4 || key.LocalPort == state.Port6))
+        var ipv4 = packet.Source.AddressFamily == AddressFamily.InterNetwork;
+        // 리스너는 IPv4/IPv6 전용으로 따로 바인드되므로 같은 계열의 포트만 리스너 응답으로 본다.
+        if (packet.Tcp && key.LocalPort == (ipv4 ? state.Port4 : state.Port6))
         {
             var flow = state.Flows.FindVirtual(key.RemotePort);
             if (flow is null || !key.RemoteAddress.Equals(flow.Key.RemoteAddress) || !key.LocalAddress.Equals(flow.Key.LocalAddress)) return 1;
             packet.Rewrite(bytes, flow.Key.RemoteAddress, flow.Key.RemotePort, flow.Key.LocalAddress, flow.Key.LocalPort);
             address.Inbound(); return 2;
         }
-        if (state.Bypass.Contains(key.Udp, key.LocalPort) || ApplicationConnection.Bypass.Contains(key.Udp, key.LocalPort)) return 1;
+        var family = ipv4 ? AddressFamily.InterNetwork : AddressFamily.InterNetworkV6;
+        if (state.Bypass.Contains(key.Udp, family, key.LocalPort)) return 1;
+        var now = Environment.TickCount64;
         var syn = packet.Tcp && (bytes[packet.TransportOffset + 13] & 0x12) == 0x02;
         if (packet.Tcp && state.Flows.Find(key) is { } existing && (!syn || existing.Sequence == BinaryPrimitives.ReadUInt32BigEndian(bytes[(packet.TransportOffset + 4)..])))
         {
-            Volatile.Write(ref existing.LastSeen, Environment.TickCount64);
-            packet.Rewrite(bytes, key.RemoteAddress, existing.VirtualPort, key.LocalAddress, key.LocalAddress.GetAddressBytes().Length == 4 ? state.Port4 : state.Port6);
+            Volatile.Write(ref existing.LastSeen, now);
+            packet.Rewrite(bytes, key.RemoteAddress, existing.VirtualPort, key.LocalAddress, ipv4 ? state.Port4 : state.Port6);
             address.Inbound(); return 2;
         }
         if (state.Stopping) { Interlocked.Increment(ref state.Dropped); return 0; }
         if (packet.Udp && state.Udp.TryGetValue(key, out var association))
         {
-            // UDP ports can be reused by another process while an association is idle.
-            // When process rules are enabled, correctness takes priority over lookup cost.
-            if (state.Plan.NeedsProcessLookup)
+            if (association.Completion.IsCompleted)
             {
-                var currentOwner = SocketOwners.Find(key);
-                if (currentOwner is null) { Interlocked.Increment(ref state.Dropped); return 0; }
-                var currentRoute = state.Plan.Match(key.RemoteAddress, key.RemotePort, true, SocketOwners.Name(currentOwner));
-                if (currentRoute?.Action != RuleAction.Proxy || currentRoute.Proxy?.Id != association.ProxyId)
-                {
-                    association.Dispose();
-                    if (currentRoute?.Action == RuleAction.Block) { Interlocked.Increment(ref state.Blocked); return 0; }
-                    if (currentRoute is null || currentRoute.Action == RuleAction.Direct) return 1;
-                    Interlocked.Increment(ref state.Dropped); return 0;
-                }
+                // 프록시 오류 등으로 끝난 association은 1초 동안만 폐기(재연결 폭주 방지)하고, 이후엔 치우고 새로 판정한다.
+                if (now - Volatile.Read(ref association.Finished) < 1000) { Interlocked.Increment(ref state.Dropped); return 0; }
+                Forget(state, key, association);
             }
-            if (!association.Enqueue(bytes[packet.PayloadOffset..])) Interlocked.Increment(ref state.Dropped);
-            return 0;
+            else if (!state.Plan.NeedsProcessLookup || now - Volatile.Read(ref association.OwnerChecked) < OwnerRecheck)
+            {
+                if (!association.Enqueue(bytes[packet.PayloadOffset..])) Interlocked.Increment(ref state.Dropped);
+                return 0;
+            }
+            else
+            {
+                // UDP 포트는 유휴 중 다른 프로세스가 재사용할 수 있으므로 주기적으로 소유자를 다시 확인한다.
+                var currentName = SocketOwners.Name(SocketOwners.Find(key));
+                if (currentName is null)
+                {
+                    Interlocked.Increment(ref state.Dropped);
+                    Failure(state, new ConnectionOwnerException());
+                    return 0;
+                }
+                Volatile.Write(ref association.OwnerChecked, now);
+                var currentRoute = state.Plan.Match(key.RemoteAddress, key.RemotePort, true, currentName);
+                if (currentRoute?.Action == RuleAction.Proxy && currentRoute.Proxy?.Id == association.ProxyId)
+                {
+                    if (!association.Enqueue(bytes[packet.PayloadOffset..])) Interlocked.Increment(ref state.Dropped);
+                    return 0;
+                }
+                // 경로가 바뀌면 사전에서도 제거하고 아래 일반 판정으로 다시 처리한다.
+                Forget(state, key, association);
+            }
         }
-        if (packet.Tcp && !syn && state.Passthrough.ContainsKey(key)) { state.Passthrough[key] = Environment.TickCount64; return 1; }
+        if (!syn && state.Passthrough.TryGetValue(key, out var decided))
+        {
+            // TCP: 이미 직접 통과로 판정된 연결. UDP: 포트 재사용에 대비해 짧은 시간만 판정을 재사용한다.
+            if (packet.Tcp) { state.Passthrough[key] = now; return 1; }
+            if (now - decided < UdpDecisionLifetime) return 1;
+        }
         var firstCandidate = state.Plan.Entries.FirstOrDefault(e => e.Matches(key.RemoteAddress, key.RemotePort, key.Udp));
         if (firstCandidate is { Action: RuleAction.Direct } && firstCandidate.Rule.ProcessName.Length == 0)
         {
             // An unconditional first DIRECT rule must not depend on later process rules
             // or on whether a short-lived socket's owner can still be queried.
-            if (packet.Tcp && state.Passthrough.Count < 32768) state.Passthrough[key] = Environment.TickCount64;
+            Remember(state, key, now);
             return 1;
         }
         var needsOwner = firstCandidate?.Rule.ProcessName.Length > 0;
-        HashSet<int> localProxyPids = state.Servers.Count == 0 ? [] : SocketOwners.LocalProxyOwners(state.Servers.Values);
+        var localProxyPids = state.LocalProxies.Current();
         var owner = needsOwner || localProxyPids.Count > 0 ? SocketOwners.Find(key) : null;
         var excluded = owner is { } pid && (pid == Environment.ProcessId || localProxyPids.Contains(pid));
+        // 프로세스 조건 판정에는 이름이 필요하다. PID는 찾았지만 이름 조회가 실패하면(종료·접근 거부)
+        // 소유자 조회 실패와 같이 취급해 규칙을 우회하지 않는다.
+        var name = needsOwner && owner is not null && !excluded ? SocketOwners.Name(owner) : null;
         // If a local proxy exists but attribution fails, do not risk recursively redirecting it.
         var unknownLocal = localProxyPids.Count > 0 && owner is null;
-        if (unknownLocal || (owner is null && needsOwner))
+        if (unknownLocal || (needsOwner && !excluded && name is null))
         {
+            // 이미 시작된 TCP 연결(비-SYN)은 어차피 프록시로 돌릴 수 없으므로 소유자를 몰라도 통과시킨다.
+            if (packet.Tcp && !syn) { Remember(state, key, now); return 1; }
             Interlocked.Increment(ref state.Dropped);
             Failure(state, new ConnectionOwnerException());
             return 0;
         }
-        var route = excluded ? null : state.Plan.Match(key.RemoteAddress, key.RemotePort, key.Udp, SocketOwners.Name(owner));
+        var route = excluded ? null : state.Plan.Match(key.RemoteAddress, key.RemotePort, key.Udp, name);
         if (route?.Action == RuleAction.Block)
         {
             Interlocked.Increment(ref state.Blocked);
@@ -266,14 +334,14 @@ public sealed class DivertEngine : IAsyncDisposable
         }
         if (route is null || route.Action == RuleAction.Direct || (packet.Tcp && !syn))
         {
-            if (packet.Tcp && state.Passthrough.Count < 32768) state.Passthrough[key] = Environment.TickCount64;
+            Remember(state, key, now);
             return 1;
         }
         if (packet.Tcp)
         {
             var flow = state.Flows.Create(key, route, BinaryPrimitives.ReadUInt32BigEndian(bytes[(packet.TransportOffset + 4)..]), state.Port4, state.Port6);
             if (flow is null) { Interlocked.Increment(ref state.Dropped); return 0; }
-            packet.Rewrite(bytes, key.RemoteAddress, flow.VirtualPort, key.LocalAddress, key.LocalAddress.GetAddressBytes().Length == 4 ? state.Port4 : state.Port6);
+            packet.Rewrite(bytes, key.RemoteAddress, flow.VirtualPort, key.LocalAddress, ipv4 ? state.Port4 : state.Port6);
             address.Inbound(); return 2;
         }
         if (state.Udp.Count >= 512) { Interlocked.Increment(ref state.Dropped); return 0; }
@@ -283,6 +351,17 @@ public sealed class DivertEngine : IAsyncDisposable
         state.Udp[key] = udp;
         if (!udp.Enqueue(bytes[packet.PayloadOffset..])) Interlocked.Increment(ref state.Dropped);
         return 0;
+    }
+
+    private static void Remember(Session state, FlowKey key, long now)
+    {
+        if (state.Passthrough.Count < PassthroughCapacity) state.Passthrough[key] = now;
+    }
+
+    private static void Forget(Session state, FlowKey key, UdpAssociation association)
+    {
+        state.Udp.TryRemove(new KeyValuePair<FlowKey, UdpAssociation>(key, association));
+        association.Dispose();
     }
 
     private static unsafe void SendUdpReply(Session state, byte[] bytes, DivertAddress address)
@@ -300,17 +379,31 @@ public sealed class DivertEngine : IAsyncDisposable
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
         try
         {
-            while (await timer.WaitForNextTickAsync(state.Stop.Token))
+            while (await timer.WaitForNextTickAsync(state.Stop.Token).ConfigureAwait(false))
             {
-                state.Flows.Sweep(); var now = Environment.TickCount64;
-                foreach (var pair in state.Passthrough.Where(p => now - p.Value > 30000)) state.Passthrough.TryRemove(pair.Key, out _);
-                foreach (var pair in state.Udp.Where(p => p.Value.Completion.IsCompleted || now - Volatile.Read(ref p.Value.LastSeen) > 120000))
+                try
                 {
-                    if (state.Udp.TryRemove(pair.Key, out var flow)) { flow.Dispose(); await flow.Completion; }
+                    state.Flows.Sweep(); var now = Environment.TickCount64;
+                    foreach (var pair in state.Passthrough.Where(p => now - p.Value > (p.Key.Udp ? UdpDecisionLifetime : PassthroughLifetime)))
+                        state.Passthrough.TryRemove(pair);
+                    foreach (var pair in state.Udp.Where(p => p.Value.Completion.IsCompleted || now - Volatile.Read(ref p.Value.LastSeen) > 120000))
+                    {
+                        if (!state.Udp.TryRemove(pair)) continue;
+                        pair.Value.Dispose();
+                        await Settle(state, pair.Value.Completion).ConfigureAwait(false);
+                    }
                 }
+                // 한 번의 정리 실패로 유지보수 루프가 영구 종료되면 흐름 표가 상한에 차 새 연결이 모두 막힌다.
+                catch (Exception ex) when (ex is not OperationCanceledException) { Failure(state, ex); }
             }
         }
         catch (OperationCanceledException) { }
+    }
+
+    private async Task Settle(Session state, Task task)
+    {
+        try { await task.ConfigureAwait(false); }
+        catch (Exception ex) { if (ex is not OperationCanceledException && !state.Stopping) Failure(state, ex); }
     }
 
     private async Task StopAfterFailure(Session failed)
@@ -329,9 +422,13 @@ public sealed class DivertEngine : IAsyncDisposable
             state.Stopping = true; state.Stop.Cancel(); state.Listener4.Stop(); state.Listener6?.Stop();
             try
             {
-                await Task.WhenAll(state.Accept4, state.Accept6, state.Maintenance);
+                // 하나가 실패해도 TCP 중계·UDP 대기를 건너뛴 채 자원을 해제하지 않도록 각각 기다린다.
+                await Settle(state, state.Accept4).ConfigureAwait(false);
+                await Settle(state, state.Accept6).ConfigureAwait(false);
+                await Settle(state, state.Maintenance).ConfigureAwait(false);
                 foreach (var flow in state.Udp.Values) flow.Dispose();
-                await Task.WhenAll(state.Tcp.Values.Concat(state.Udp.Values.Select(f => f.Completion)));
+                foreach (var task in state.Tcp.Values.Concat(state.Udp.Values.Select(f => f.Completion)).ToArray())
+                    await Settle(state, task).ConfigureAwait(false);
             }
             finally
             {
@@ -339,7 +436,7 @@ public sealed class DivertEngine : IAsyncDisposable
                 await state.Capture;
                 state.Handle!.Dispose(); state.Stop.Dispose(); state.TcpSlots.Dispose();
                 last = state.Statistics with { TcpConnections = 0, UdpAssociations = 0 }; session = null;
-                Log?.Invoke("Rules stopped. Capture released.");
+                Log?.Invoke("규칙 적용 중지. 패킷 캡처를 해제했습니다.");
             }
         }
         finally { gate.Release(); }

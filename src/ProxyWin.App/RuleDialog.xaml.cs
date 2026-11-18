@@ -35,7 +35,7 @@ public partial class RuleDialog : Window
     private async void Save(object sender, RoutedEventArgs e)
     {
         if (saving || closed) return;
-        saving = true; FieldsPanel.IsEnabled = SaveButton.IsEnabled = false; SaveButton.Content = "Resolving…";
+        saving = true; FieldsPanel.IsEnabled = SaveButton.IsEnabled = false; SaveButton.Content = "IP 확인 중…";
         try
         {
             var result = new RoutingRule
@@ -53,7 +53,7 @@ public partial class RuleDialog : Window
         }
         catch (OperationCanceledException) when (closed) { }
         catch (Exception ex) { if (!closed) AppMessages.Error(this, ex); }
-        finally { saving = false; if (!closed) { FieldsPanel.IsEnabled = SaveButton.IsEnabled = true; SaveButton.Content = "Save"; } }
+        finally { saving = false; if (!closed) { FieldsPanel.IsEnabled = SaveButton.IsEnabled = true; SaveButton.Content = "저장"; } }
     }
     private void OpenProcessPicker(object sender, EventArgs e)
     {

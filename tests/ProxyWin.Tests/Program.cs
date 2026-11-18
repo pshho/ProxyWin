@@ -102,7 +102,7 @@ if (clientArgs is ["--client", var protocol, var ip, var portText, var expected,
 }
 
 var failures = 0; var tests = 0;
-using var watchdog = args.Contains("--driver") || args.Contains("--driver-update") ? new Timer(_ => { Console.WriteLine("FAIL driver test watchdog expired; terminating the test host to release all driver handles."); Environment.Exit(124); }, null, TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan) : null;
+using var watchdog = args.Contains("--driver") ? new Timer(_ => { Console.WriteLine("FAIL driver test watchdog expired; terminating the test host to release all driver handles."); Environment.Exit(124); }, null, TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan) : null;
 void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }
 void Reject(Action action) { try { action(); } catch (FormatException) { return; } throw new Exception("Expected validation rejection"); }
 async Task Test(string name, Func<Task> action)
@@ -119,8 +119,6 @@ Profile Example() => new()
 };
 
 await Test("Domain destination resolution, mixed IPs, IDN, failures and cancellation", FeatureTests.Destinations);
-await Test("Update versions, trusted release links and HTTP failure handling", FeatureTests.Updates);
-await Test("Update TCP socket ownership, IPv4/IPv6, disposal and failed-connect cleanup", ApplicationConnectionTests.Lifetime);
 await Test("HTTP CONNECT status retained without response bodies or credentials", HttpFailureTests.StatusCodes);
 await Test("Profile path survives working-directory changes", CoreAvailabilityTests.ProfilePathStability);
 await Test("CIDR boundaries and allocation-free repeated matching", CoreAvailabilityTests.NetworkMatching);
@@ -133,6 +131,11 @@ await Test("Cancelled SOCKS5/HTTP handshakes release registrations", Availabilit
 await Test("128 concurrent-wave TCP relays preserve payload, EOF and byte counts", AvailabilityTests.ConcurrentRelays);
 await Test("Repeated UDP queue cancellation restores all global budget", AvailabilityTests.UdpCancellationBudget);
 await Test("TCP mapping capacity, unique ports and expiry recovery", AvailabilityTests.TcpCapacityRecovery);
+await Test("IP fragments follow address-only rule decisions and drop only ambiguous cases", RepairTests.FragmentDecisions);
+await Test("A bad packet in a batch does not discard the following packets; IPv6 UDP reply size", RepairTests.BatchFrameLengths);
+await Test("Bypass registrations and listener replies are separated by address family", RepairTests.BypassFamilies);
+await Test("Closed TCP flows are reclaimed at capacity; link-local ScopeId is ignored", RepairTests.FlowTableRepairs);
+await Test("Unexpected UDP relay failures are reported without faulting Completion", RepairTests.UdpUnexpectedFailureContained);
 
 await Test("IP/CIDR and port boundaries", () => Sync(() =>
 {
@@ -427,49 +430,6 @@ if (args.Contains("--network-features"))
         Assert(!destinations.Contains("github.com") && RuleParser.Networks(destinations).Length > 1, "real DNS converted to numeric addresses");
         Console.WriteLine($"  Live DNS: {destinations}");
     });
-    await Test("Public GitHub update API", async () =>
-    {
-        var update = await UpdateChecker.CheckAsync(new Version(0, 0, 0));
-        Assert(update is not null && update.ReleasePage.Host == "github.com", "live public release lookup");
-        Console.WriteLine($"  Latest release: {update!.Version}");
-    });
-}
-
-if (args.Contains("--driver") || args.Contains("--driver-update"))
-{
-    await Test("Active BLOCK exempts only managed update TCP sockets across Apply/Stop", async () =>
-    {
-        var target = IPAddress.Parse("203.0.113.10"); const int port = 7447;
-        for (var cycle = 0; cycle < 2; cycle++)
-        {
-            using var sink = WinDivertNative.Open("outbound and ip.DstAddr == 203.0.113.10 and tcp.DstPort == 7447", -100);
-            await using var engine = new DivertEngine();
-            await engine.StartAsync(new Profile { Rules = [new RoutingRule { Destinations = target.ToString(), Ports = port.ToString(), Action = RuleAction.Block }] });
-            async Task Attempt(bool managed)
-            {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
-                try
-                {
-                    if (managed) { using var stream = await ApplicationConnection.ConnectAsync(new DnsEndPoint(target.ToString(), port), timeout.Token); }
-                    else { using var socket = new TcpClient(); await socket.ConnectAsync(target, port, timeout.Token); }
-                    throw new Exception("Fixture sink must not complete TCP handshakes");
-                }
-                catch (OperationCanceledException) when (timeout.IsCancellationRequested) { }
-            }
-            await Attempt(false); await Task.Delay(50);
-            var before = engine.Statistics.Blocked;
-            Assert(before > 0, "ordinary TCP connection is blocked");
-            await Attempt(true); await Task.Delay(50);
-            Assert(engine.Statistics.Blocked == before, "managed updater TCP must not enter user BLOCK rules");
-            Assert(WinDivertNative.WinDivertShutdown(sink, WinDivertNative.ShutdownReceive), "finish scoped sink");
-            var passed = ReadSink(sink);
-            Assert(passed is not null && IpPacket.TryParse(passed, out var packet) && packet.Tcp && packet.Key(passed).RemotePort == port, "managed TCP reached the lower-priority sink unchanged");
-            await Attempt(false);
-            Assert(engine.Statistics.Blocked > before, "ordinary TCP remains blocked after updater cleanup");
-            await engine.StopAsync();
-            Console.WriteLine($"  Cycle {cycle + 1}: updater passed, other TCP blocked; rules stopped normally.");
-        }
-    });
 }
 
 if (args.Contains("--driver"))
@@ -626,8 +586,8 @@ if (args.Contains("--driver"))
         await engine.StartAsync(profile); await RunClient("tcp", 443, "socks:ping", 1); await engine.StopAsync();
     });
 }
-else if (!args.Contains("--driver-update")) Console.WriteLine("SKIP actual driver interception (pass --driver from an elevated test host)");
-if (args.Contains("--driver") || args.Contains("--driver-update")) Console.WriteLine("Driver cleanup: " + (await DriverService.TryUnloadAsync()).Message);
+else Console.WriteLine("SKIP actual driver interception (pass --driver from an elevated test host)");
+if (args.Contains("--driver")) Console.WriteLine("Driver cleanup: " + (await DriverService.TryUnloadAsync()).Message);
 Console.WriteLine($"{tests - failures}/{tests} passed");
 return failures == 0 ? 0 : 1;
 

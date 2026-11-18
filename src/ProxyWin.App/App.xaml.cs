@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Media;
@@ -16,7 +17,7 @@ public partial class App : Application
     private Mutex? instance;
     protected override async void OnStartup(StartupEventArgs e)
     {
-        CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
+        CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("ko-KR");
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.CurrentUICulture;
         base.OnStartup(e);
         if (e.Args is ["--driver-cleanup", var parentId, var parentStarted, var readyEvent, var cleanupReport])
@@ -75,7 +76,7 @@ public partial class App : Application
                 var statusPreview = (TextBlock)smoke.FindName("StatusText");
                 var togglePreview = (Button)smoke.FindName("ToggleButton");
                 var originalStatus = statusPreview.Text; var originalToggle = togglePreview.Content;
-                foreach (var (status, label, file) in new[] { ("● Active", "■ Stop", "status-active.png"), ("● Working", "Working…", "status-working.png") })
+                foreach (var (status, label, file) in new[] { ("● 적용 중", "■ 적용 중지", "status-active.png"), ("● 처리 중", "처리 중…", "status-working.png") })
                 {
                     statusPreview.Text = status; togglePreview.Content = label;
                     await smoke.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
@@ -116,7 +117,7 @@ public partial class App : Application
                 var availability = new MainWindow(new ProfileStore(Path.Combine(output, "save-failure-profile"))) { Owner = smoke };
                 await availability.VerifySaveFailuresAsync();
                 if (dispatcherFailure is not null) throw new InvalidOperationException("GUI dispatcher failed during smoke validation.", dispatcherFailure);
-                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: English compact/minimum window and editors, comma-separated rule addition and editing, domain conversion in quick-add and rule editor (injected DNS fixture), update notification/current-version/failure states with safe error details, DIRECT/PROXY/BLOCK and process-wide wildcard quick-add, rule order/toggle, observation-to-rule, duplicate prevention, substring process search preserving manual names, loaded app icon, actual save failures preserve checkbox/profile state and suppress success messages, and recovery after unlocking the profile; no driver opened; no user profile modified.");
+                File.WriteAllText(Path.Combine(output, "result.txt"), "PASS: Korean step-by-step (server → rule → apply) window with getting-started guide, action hints and input examples, compact/minimum window and editors, duplicate-rule row targeting (move/toggle) and quick-add duplicate prevention, comma-separated rule addition and editing, domain conversion in quick-add and rule editor (injected DNS fixture), DIRECT/PROXY/BLOCK and process-wide wildcard quick-add, rule order/toggle, observation-to-rule, duplicate prevention, substring process search preserving manual names, loaded app icon, actual save failures preserve checkbox/profile state and suppress success messages, and recovery after unlocking the profile; no driver opened; no user profile modified.");
                 Shutdown(0);
             }
             catch (Exception ex) { File.WriteAllText(Path.Combine(output, "result.txt"), ex.ToString()); Shutdown(1); }
@@ -131,7 +132,7 @@ public partial class App : Application
             return;
         }
         instance = new Mutex(true, "Local\\ProxyWin.GUI", out var created);
-        if (!created) { AppMessages.Info(null, "ProxyWin is already running."); Shutdown(); return; }
+        if (!created) { AppMessages.Info(null, "ProxyWin이 이미 실행 중입니다. 작업 표시줄에서 기존 창을 확인하세요."); Shutdown(); return; }
         var window = new MainWindow(new ProfileStore(ProfileStore.DefaultDirectory));
         MainWindow = window;
         window.Show();
@@ -151,6 +152,22 @@ public partial class App : Application
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var file = File.Create(path);
         encoder.Save(file);
+    }
+
+    // 단일 실행 잠금을 먼저 풀고 같은 실행 파일을 관리자 권한(runas)으로 다시 연다.
+    // UAC를 취소하면 잠금을 다시 잡고 false를 돌려 현재 창을 그대로 유지한다.
+    internal bool RestartElevated()
+    {
+        var path = Environment.ProcessPath ?? throw new InvalidOperationException("실행 파일 위치를 찾을 수 없습니다.");
+        var start = new ProcessStartInfo(path) { UseShellExecute = true, Verb = "runas" };
+        // dotnet ProxyWin.dll 로 실행한 경우(프레임워크 종속 실행)에는 DLL 경로를 인자로 넘긴다.
+        if (Path.GetFileNameWithoutExtension(path).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+            start.Arguments = $"\"{typeof(App).Assembly.Location}\"";
+        instance?.Dispose(); instance = null;
+        try { Process.Start(start); return true; }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223) { Reacquire(); return false; }
+        catch { Reacquire(); throw; }
+        void Reacquire() => instance = new Mutex(true, "Local\\ProxyWin.GUI", out _);
     }
 
     protected override void OnExit(ExitEventArgs e) { instance?.Dispose(); base.OnExit(e); }

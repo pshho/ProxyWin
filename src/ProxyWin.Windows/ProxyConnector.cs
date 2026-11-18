@@ -10,15 +10,26 @@ namespace ProxyWin.Windows;
 
 public sealed class SocketBypass
 {
-    private readonly ConcurrentDictionary<(bool Udp, int Port), long> ports = new();
+    // IPv4/IPv6 포트 공간은 서로 독립이므로 주소 계열까지 키에 넣어야
+    // 다른 계열의 앱 소켓이 같은 번호를 써도 규칙을 우회하지 않는다.
+    private readonly ConcurrentDictionary<(bool Udp, bool V6, int Port), long> ports = new();
     private long generation;
     internal int Count => ports.Count;
-    public bool Contains(bool udp, int port) => ports.ContainsKey((udp, port));
-    public IDisposable Register(bool udp, int port)
+    public bool Contains(bool udp, int port) => Contains(udp, false, port) || Contains(udp, true, port);
+    public bool Contains(bool udp, bool v6, int port) => ports.ContainsKey((udp, v6, port));
+    public bool Contains(bool udp, AddressFamily family, int port) => Contains(udp, family == AddressFamily.InterNetworkV6, port);
+    // 계열을 지정하지 않으면 듀얼모드 소켓으로 보고 양쪽 계열 모두 등록한다.
+    public IDisposable Register(bool udp, int port) => Register(udp, [false, true], port);
+    public IDisposable Register(bool udp, AddressFamily family, int port) => Register(udp, [family == AddressFamily.InterNetworkV6], port);
+    private Registration Register(bool udp, bool[] families, int port)
     {
-        var key = (udp, port); var id = Interlocked.Increment(ref generation);
-        ports[key] = id;
-        return new Registration(() => ((ICollection<KeyValuePair<(bool Udp, int Port), long>>)ports).Remove(new(key, id)));
+        var id = Interlocked.Increment(ref generation);
+        var keys = families.Select(v6 => (udp, v6, port)).ToArray();
+        foreach (var key in keys) ports[key] = id;
+        return new Registration(() =>
+        {
+            foreach (var key in keys) ((ICollection<KeyValuePair<(bool Udp, bool V6, int Port), long>>)ports).Remove(new(key, id));
+        });
     }
     private sealed class Registration(Action release) : IDisposable
     {
@@ -42,8 +53,14 @@ public static class ProxyConnector
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
         var client = new TcpClient(server.AddressFamily) { NoDelay = true, ExclusiveAddressUse = true, SendBufferSize = 262144, ReceiveBufferSize = 262144 };
-        client.Client.Bind(new IPEndPoint(server.AddressFamily == AddressFamily.InterNetwork ? IPAddress.Any : IPAddress.IPv6Any, 0));
-        var lease = bypass.Register(false, ((IPEndPoint)client.Client.LocalEndPoint!).Port);
+        IDisposable lease;
+        try
+        {
+            // 포트 고갈 등으로 Bind가 실패해도 소켓 핸들을 GC에 맡기지 않고 즉시 해제한다.
+            client.Client.Bind(new IPEndPoint(server.AddressFamily == AddressFamily.InterNetwork ? IPAddress.Any : IPAddress.IPv6Any, 0));
+            lease = bypass.Register(false, server.AddressFamily, ((IPEndPoint)client.Client.LocalEndPoint!).Port);
+        }
+        catch { client.Dispose(); throw; }
         var connection = new ProxyConnection(client, lease);
         var connected = false;
         try
@@ -103,7 +120,8 @@ public static class ProxyConnector
         var method = (byte)(proxy.Username.Length == 0 ? 0 : 2);
         await stream.WriteAsync(new byte[] { 5, 1, method }, token);
         var reply = new byte[2]; await stream.ReadExactlyAsync(reply, token);
-        if (reply[0] != 5 || reply[1] != method) throw new IOException("SOCKS5 authentication method rejected.");
+        if (reply[0] != 5) throw new Socks5Exception("SOCKS5 응답이 아닙니다. 서버 종류(SOCKS5/HTTP)와 포트를 확인하세요.");
+        if (reply[1] != method) throw new Socks5Exception(method == 0 ? "서버가 인증을 요구합니다. 사용자명/비밀번호를 입력하세요." : "서버가 사용자명/비밀번호 인증을 지원하지 않습니다.");
         if (method == 0) return;
         var username = Encoding.UTF8.GetBytes(proxy.Username); var password = Encoding.UTF8.GetBytes(proxy.Password);
         var auth = new byte[3 + username.Length + password.Length]; auth[0] = 1; auth[1] = (byte)username.Length;
@@ -111,7 +129,7 @@ public static class ProxyConnector
         try { await stream.WriteAsync(auth, token); }
         finally { Array.Clear(auth); Array.Clear(password); }
         await stream.ReadExactlyAsync(reply, token);
-        if (reply[0] != 1 || reply[1] != 0) throw new IOException("SOCKS5 authentication failed.");
+        if (reply[0] != 1 || reply[1] != 0) throw new Socks5Exception("사용자명 또는 비밀번호가 거부되었습니다.");
     }
 
     public static async Task<(string Host, int Port)> SocksCommandAsync(NetworkStream stream, byte command, IPEndPoint destination, CancellationToken token)
@@ -119,7 +137,8 @@ public static class ProxyConnector
         var address = EncodeAddress(destination);
         await stream.WriteAsync(new byte[] { 5, command, 0 }.Concat(address).ToArray(), token);
         var header = new byte[4]; await stream.ReadExactlyAsync(header, token);
-        if (header[0] != 5 || header[1] != 0 || header[2] != 0) throw new IOException($"SOCKS5 connection rejected (status {header[1]}).");
+        if (header[0] != 5 || header[2] != 0) throw new Socks5Exception("SOCKS5 응답 형식이 올바르지 않습니다. 서버 종류와 포트를 확인하세요.");
+        if (header[1] != 0) throw new Socks5Exception(Socks5Exception.Reply(header[1]));
         string host;
         if (header[3] is 1 or 4)
         {
@@ -129,10 +148,10 @@ public static class ProxyConnector
         else if (header[3] == 3)
         {
             var length = new byte[1]; await stream.ReadExactlyAsync(length, token);
-            if (length[0] == 0) throw new IOException("SOCKS5 relay address is empty.");
+            if (length[0] == 0) throw new Socks5Exception("SOCKS5 서버가 빈 중계 주소를 보냈습니다.");
             var bytes = new byte[length[0]]; await stream.ReadExactlyAsync(bytes, token); host = Encoding.ASCII.GetString(bytes);
         }
-        else throw new IOException("Invalid SOCKS5 address.");
+        else throw new Socks5Exception("SOCKS5 서버가 알 수 없는 주소 형식을 보냈습니다.");
         var port = new byte[2]; await stream.ReadExactlyAsync(port, token);
         return (host, BinaryPrimitives.ReadUInt16BigEndian(port));
     }

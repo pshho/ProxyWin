@@ -2,7 +2,12 @@
   <Application.Resources>
     <SolidColorBrush x:Key="Ink" Color="#17263F" />
     <SolidColorBrush x:Key="Muted" Color="#62738A" />
+    <SolidColorBrush x:Key="Hint" Color="#97A6BA" />
     <SolidColorBrush x:Key="Accent" Color="#2862E9" />
+    <SolidColorBrush x:Key="AccentSoft" Color="#EAF1FE" />
+    <SolidColorBrush x:Key="WarnBack" Color="#FFF7E6" />
+    <SolidColorBrush x:Key="WarnLine" Color="#F3C677" />
+    <SolidColorBrush x:Key="WarnInk" Color="#8A5300" />
     <Style TargetType="Window">
       <Setter Property="FontFamily" Value="Segoe UI, Malgun Gothic" /><Setter Property="FontSize" Value="12" />
       <Setter Property="Foreground" Value="{StaticResource Ink}" /><Setter Property="Background" Value="#F3F6FB" />
@@ -12,6 +17,7 @@
       <Setter Property="Background" Value="White" /><Setter Property="Foreground" Value="{StaticResource Ink}" />
       <Setter Property="BorderBrush" Value="#D5DFEC" /><Setter Property="BorderThickness" Value="1" />
       <Setter Property="Padding" Value="10,5" /><Setter Property="Cursor" Value="Hand" />
+      <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
         <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="{TemplateBinding Padding}">
           <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -24,17 +30,38 @@
     </Style>
     <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
       <Setter Property="Background" Value="{StaticResource Accent}" /><Setter Property="Foreground" Value="White" /><Setter Property="BorderBrush" Value="{StaticResource Accent}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style x:Key="Link" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="Padding" Value="2,0" />
+      <Setter Property="Foreground" Value="{StaticResource Accent}" />
     </Style>
     <Style x:Key="Help" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
       <Setter Property="Width" Value="16" /><Setter Property="Height" Value="16" /><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="5,0,0,0" />
-      <Setter Property="Content" Value="!" /><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="Bold" /><Setter Property="Foreground" Value="{StaticResource Muted}" />
-      <Setter Property="ToolTipService.InitialShowDelay" Value="150" /><Setter Property="ToolTipService.ShowDuration" Value="30000" />
+      <Setter Property="Content" Value="?" /><Setter Property="FontSize" Value="10" /><Setter Property="FontWeight" Value="Bold" /><Setter Property="Foreground" Value="{StaticResource Muted}" />
+      <Setter Property="ToolTipService.InitialShowDelay" Value="150" /><Setter Property="ToolTipService.ShowDuration" Value="60000" />
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border CornerRadius="8" BorderThickness="1" BorderBrush="#8CA0BA" Background="White"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" /></Border></ControlTemplate></Setter.Value></Setter>
       <EventSetter Event="Click" Handler="OpenHelp" />
     </Style>
-    <Style TargetType="ToolTip"><Setter Property="MaxWidth" Value="330" /><Setter Property="FontSize" Value="11" /><Setter Property="ContentTemplate"><Setter.Value><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" MaxWidth="310" /></DataTemplate></Setter.Value></Setter></Style>
+    <Style TargetType="ToolTip"><Setter Property="MaxWidth" Value="380" /><Setter Property="FontSize" Value="11" /><Setter Property="ContentTemplate"><Setter.Value><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" MaxWidth="360" LineHeight="17" /></DataTemplate></Setter.Value></Setter></Style>
+    <!-- Tag에 넣은 문구를 빈 입력칸에 흐린 예시로 보여 준다 -->
     <Style TargetType="TextBox">
-      <Setter Property="Padding" Value="6,4" /><Setter Property="BorderBrush" Value="#CBD6E5" /><Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Padding" Value="6,4" /><Setter Property="BorderBrush" Value="#CBD6E5" /><Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Background" Value="White" /><Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox">
+        <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" SnapsToDevicePixels="True">
+          <Grid>
+            <TextBlock x:Name="HintText" Text="{TemplateBinding Tag}" Foreground="{StaticResource Hint}" Margin="{TemplateBinding Padding}" Padding="2,0,0,0" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" TextTrimming="CharacterEllipsis" IsHitTestVisible="False" Visibility="Collapsed" />
+            <ScrollViewer x:Name="PART_ContentHost" Focusable="False" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+          </Grid>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="Text" Value=""><Setter TargetName="HintText" Property="Visibility" Value="Visible" /></Trigger>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="#9FB3CE" /></Trigger>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource Accent}" /></Trigger>
+          <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Frame" Property="Opacity" Value="0.55" /></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
     </Style>
     <Style TargetType="PasswordBox"><Setter Property="Padding" Value="6,4" /><Setter Property="BorderBrush" Value="#CBD6E5" /></Style>
     <Style TargetType="ComboBox"><Setter Property="Padding" Value="6,4" /><Setter Property="VerticalContentAlignment" Value="Center" /></Style>
@@ -52,5 +79,14 @@
     <Style TargetType="DataGridCell"><Setter Property="BorderThickness" Value="0" /><Setter Property="Padding" Value="8,0" /><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="DataGridCell"><Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}"><ContentPresenter VerticalAlignment="Center" /></Border></ControlTemplate></Setter.Value></Setter></Style>
     <Style x:Key="Card" TargetType="Border"><Setter Property="Background" Value="White" /><Setter Property="CornerRadius" Value="7" /><Setter Property="Padding" Value="12" /><Setter Property="BorderBrush" Value="#E2E9F2" /><Setter Property="BorderThickness" Value="1" /></Style>
     <Style x:Key="Label" TargetType="TextBlock"><Setter Property="Margin" Value="0,9,0,4" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+    <Style x:Key="FieldLabel" TargetType="TextBlock"><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="VerticalAlignment" Value="Center" /></Style>
+    <Style x:Key="Note" TargetType="TextBlock"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="{StaticResource Muted}" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
+    <!-- 단계 번호 배지(① ② ③) -->
+    <Style x:Key="StepBadge" TargetType="Border">
+      <Setter Property="Width" Value="20" /><Setter Property="Height" Value="20" /><Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Background" Value="{StaticResource Accent}" /><Setter Property="Margin" Value="0,0,7,0" /><Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextElement.Foreground" Value="White" /><Setter Property="TextElement.FontWeight" Value="Bold" /><Setter Property="TextElement.FontSize" Value="11" />
+    </Style>
+    <Style x:Key="StepTitle" TargetType="TextBlock"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="Bold" /><Setter Property="VerticalAlignment" Value="Center" /></Style>
   </Application.Resources>
 </Application>

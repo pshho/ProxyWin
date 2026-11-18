@@ -64,17 +64,17 @@ internal static class WinDivertNative
         })
         {
             var path = Path.Combine(AppContext.BaseDirectory, "driver", name);
-            if (!File.Exists(path)) throw new FileNotFoundException($"Missing driver/{name}. Keep the full release folder.");
+            if (!File.Exists(path)) throw new FileNotFoundException($"driver/{name} 파일이 없습니다. 압축을 풀 때 driver 폴더까지 전체를 함께 두세요(백신이 격리했을 수도 있습니다).");
             using var file = File.OpenRead(path);
             if (!Convert.ToHexString(SHA256.HashData(file)).Equals(hash, StringComparison.OrdinalIgnoreCase))
-                throw new IOException($"Driver integrity check failed: {name}.");
+                throw new IOException($"드라이버 무결성 검사 실패: {name}. 공식 배포 파일로 다시 받으세요.");
         }
     }
 
     public static void ValidateFilter(string filter)
     {
         if (!WinDivertHelperCompileFilter(filter, 0, IntPtr.Zero, 0, out var error, out var position))
-            throw new FormatException($"Invalid capture filter ({position}): {Marshal.PtrToStringAnsi(error)}");
+            throw new FormatException($"캡처 필터가 올바르지 않습니다({position}): {Marshal.PtrToStringAnsi(error)}");
     }
     internal static unsafe bool Evaluate(string filter, byte[] packet)
     {
@@ -87,7 +87,7 @@ internal static class WinDivertNative
         if (handle.IsInvalid)
         {
             var error = Marshal.GetLastWin32Error(); handle.Dispose();
-            throw new Win32Exception(error, $"Cannot start WinDivert ({error}). Check administrator access and the driver.");
+            throw new Win32Exception(error, $"WinDivert를 시작할 수 없습니다({error}). 관리자 권한과 드라이버 파일을 확인하세요.");
         }
         if (!WinDivertSetParam(handle, 0, 8192) || !WinDivertSetParam(handle, 1, 1000) || !WinDivertSetParam(handle, 2, 16 * 1024 * 1024))
         {
@@ -105,7 +105,7 @@ internal static class WinDivertNative
         if (handle.IsInvalid)
         {
             var error = Marshal.GetLastWin32Error(); handle.Dispose();
-            throw new Win32Exception(error, $"Cannot start the monitor ({error}). Check administrator access and the driver.");
+            throw new Win32Exception(error, $"연결 모니터를 시작할 수 없습니다({error}). 관리자 권한과 드라이버 파일을 확인하세요.");
         }
         return handle;
     }
@@ -114,7 +114,7 @@ internal static class WinDivertNative
     {
         var text = new StringBuilder(64);
         if (!WinDivertHelperFormatIPv6Address([a, b, c, d], text, 64) || !IPAddress.TryParse(text.ToString(), out var address))
-            throw new IOException("Cannot decode the connection address.");
+            throw new IOException("연결 주소를 해석할 수 없습니다.");
         return address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
     }
 

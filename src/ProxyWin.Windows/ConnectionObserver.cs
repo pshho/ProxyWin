@@ -28,7 +28,7 @@ public sealed class ConnectionObserver : IAsyncDisposable
         await gate.WaitAsync();
         try
         {
-            if (IsRunning) throw new InvalidOperationException("Monitor is already running.");
+            if (IsRunning) throw new InvalidOperationException("연결 모니터가 이미 실행 중입니다.");
             await StopCore();
             WinDivertNative.VerifyFiles();
             var next = new ObservationSession(WinDivertNative.OpenFlow(onlyProcessId));
@@ -58,7 +58,7 @@ public sealed class ConnectionObserver : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            if (!current.Stopping) LastError = ex is Win32Exception win32 ? $"Monitor stopped: Windows error {win32.NativeErrorCode}" : $"Monitor stopped: {ex.GetType().Name}";
+            if (!current.Stopping) LastError = ex is Win32Exception win32 ? $"연결 모니터 중지됨: Windows 오류 {win32.NativeErrorCode}" : $"연결 모니터 중지됨: {ex.GetType().Name}";
         }
         finally { current.Running = false; current.Handle.Dispose(); }
     }
