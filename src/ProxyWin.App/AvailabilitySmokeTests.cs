@@ -32,24 +32,31 @@ public partial class MainWindow
             ?? throw new InvalidOperationException("Rule checkbox was not rendered.");
         var errors = new List<string>();
         var dismissed = 0;
-        void DismissExpectedError() => Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
+        // 저장은 백그라운드에서 실패하므로, 오류 창이 실제로 뜰 때까지(최대 10초) 기다렸다가 닫는다.
+        void DismissExpectedError()
         {
-            var dialog = Application.Current.Windows.Cast<Window>().Single(w => w.Owner == this && w.Title == "ProxyWin");
-            dismissed++; dialog.Close();
-        }));
+            var deadline = Environment.TickCount64 + 10000;
+            void Attempt() => Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
+            {
+                var dialog = Application.Current.Windows.Cast<Window>().SingleOrDefault(w => w.Owner == this && w.Title == "ProxyWin");
+                if (dialog is null) { if (Environment.TickCount64 < deadline) Attempt(); return; }
+                dismissed++; dialog.Close();
+            }));
+            Attempt();
+        }
         var path = Path.Combine(store.DirectoryPath, "profile.dat");
         var saved = File.ReadAllBytes(path);
         // A real Windows sharing violation tests atomic-save failure, not a mocked exception.
         using (var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             check.SetCurrentValue(CheckBox.IsCheckedProperty, false);
-            DismissExpectedError(); ToggleRule(check, new RoutedEventArgs());
+            DismissExpectedError(); await ToggleRuleAsync(check);
             if (!profile.Rules[0].Enabled || check.IsChecked != true)
                 errors.Add("Failed save left the rule checkbox inconsistent with the unchanged profile.");
             ActionBox.SelectedIndex = (int)RuleAction.Block;
             AddObservation(observed); ObservationGrid.SelectedItem = observed;
             pendingLogs.Clear(); logs.Clear();
-            DismissExpectedError(); AddObservedRule(this, new RoutedEventArgs());
+            DismissExpectedError(); await AddObservedRuleAsync();
             if (profile.Rules[1].Enabled || pendingLogs.Concat(logs).Any(line => line.Contains(ExistingRuleMessage, StringComparison.Ordinal)))
                 errors.Add("Failed observed-rule save reported success or changed the profile.");
             if (!File.ReadAllBytes(path).SequenceEqual(saved)) errors.Add("Failed save changed the encrypted profile.");
@@ -58,7 +65,7 @@ public partial class MainWindow
         if (dismissed != 2) errors.Add("Expected two actual save-error dialogs.");
         // After the sharing violation ends, editing and persistence must recover.
         check.SetCurrentValue(CheckBox.IsCheckedProperty, false);
-        ToggleRule(check, new RoutedEventArgs());
+        await ToggleRuleAsync(check);
         if (profile.Rules[0].Enabled || store.Load().Rules[0].Enabled) errors.Add("Editing did not recover after the file was unlocked.");
         var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Closed += (_, _) => finished.TrySetResult();

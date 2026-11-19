@@ -47,14 +47,40 @@ internal sealed class TcpFlowTable
             flow.Accepted = true; return flow;
         }
     }
-    // 닫힌 흐름은 늦게 도착하는 FIN/ACK 변환을 위해 잠시 보관하지만, 짧은 연결이 몰려
-    // 상한에 닿으면 새 SYN을 버리는 대신 가장 오래 닫혀 있던 흐름부터 1/8씩 회수한다.
+    // 닫힌 흐름은 닫힌 순서대로 큐에 쌓아, 상한에 닿았을 때 전체를 훑지 않고 앞에서부터 회수한다.
+    private readonly Queue<TcpFlow> closed = new();
+    // 리스너의 FIN/ACK 재전송이 변환되도록 닫힌 직후 흐름은 최소 이 시간 동안 남겨 둔다.
+    internal const long MinimumClosedRetention = 5000;
+
+    public void MarkClosed(TcpFlow flow) => MarkClosed(flow, Environment.TickCount64);
+    internal void MarkClosed(TcpFlow flow, long closedAt)
+    {
+        lock (sync)
+        {
+            if (flow.Closed != 0) return;
+            Volatile.Write(ref flow.Closed, closedAt);
+            closed.Enqueue(flow);
+        }
+    }
+
+    // 같은 4-튜플로 새 연결(시퀀스가 다른 SYN)이 시작되면 옛 흐름의 원래 주소 매핑만 끊는다.
+    // 가상 포트 쪽 매핑은 리스너의 늦은 FIN/ACK 역변환을 위해 그대로 둔다.
+    public void Forget(FlowKey key, TcpFlow flow)
+    {
+        lock (sync) if (byOriginal.GetValueOrDefault(key) == flow) byOriginal.Remove(key);
+    }
+
+    // 짧은 연결이 몰려 상한에 닿으면 새 SYN을 버리는 대신 가장 오래 닫혀 있던 흐름부터 1/8씩 회수한다.
     private bool ReclaimClosed()
     {
-        var closed = byVirtual.Values.Where(f => Volatile.Read(ref f.Closed) != 0)
-            .OrderBy(f => Volatile.Read(ref f.Closed)).Take(Capacity / 8).ToArray();
-        foreach (var flow in closed) Remove(flow);
-        return closed.Length > 0;
+        var now = Environment.TickCount64; var reclaimed = 0;
+        while (reclaimed < Capacity / 8 && closed.TryPeek(out var flow))
+        {
+            if (byVirtual.GetValueOrDefault(flow.VirtualPort) != flow) { closed.Dequeue(); continue; }
+            if (now - flow.Closed < MinimumClosedRetention) break;
+            closed.Dequeue(); Remove(flow); reclaimed++;
+        }
+        return reclaimed > 0;
     }
 
     private void Remove(TcpFlow flow)
@@ -80,6 +106,8 @@ internal sealed class TcpFlowTable
             foreach (var flow in byVirtual.Values.Where(f => (Volatile.Read(ref f.Closed) != 0 && now - Volatile.Read(ref f.Closed) > 120000)
                 || (!f.Accepted && now - Volatile.Read(ref f.LastSeen) > 30000)).ToArray())
                 Remove(flow);
+            // 이미 지워진 흐름은 큐 앞에서 정리해 큐가 계속 커지지 않게 한다.
+            while (closed.TryPeek(out var head) && byVirtual.GetValueOrDefault(head.VirtualPort) != head) closed.Dequeue();
         }
     }
 }

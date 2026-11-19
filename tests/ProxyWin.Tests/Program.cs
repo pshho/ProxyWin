@@ -134,8 +134,12 @@ await Test("TCP mapping capacity, unique ports and expiry recovery", Availabilit
 await Test("IP fragments follow address-only rule decisions and drop only ambiguous cases", RepairTests.FragmentDecisions);
 await Test("A bad packet in a batch does not discard the following packets; IPv6 UDP reply size", RepairTests.BatchFrameLengths);
 await Test("Bypass registrations and listener replies are separated by address family", RepairTests.BypassFamilies);
-await Test("Closed TCP flows are reclaimed at capacity; link-local ScopeId is ignored", RepairTests.FlowTableRepairs);
+await Test("Closed TCP flows are reclaimed at capacity after retention; stale mappings are forgotten; link-local ScopeId", RepairTests.FlowTableRepairs);
 await Test("Unexpected UDP relay failures are reported without faulting Completion", RepairTests.UdpUnexpectedFailureContained);
+await Test("Precomputed rule matching equals a full scan; rewrite rejects mismatched families", RepairTests.PlanMatchingCache);
+await Test("SOCKS5 UDP reply source is matched without allocation", RepairTests.DatagramSourceMatching);
+await Test("Process names come from the image path, cached per process instance", RepairTests.ProcessNameLookup);
+await Test("Half-closed TCP relay ends after the idle timeout", RepairTests.HalfCloseIdleTimeout);
 
 await Test("IP/CIDR and port boundaries", () => Sync(() =>
 {

@@ -90,13 +90,25 @@ internal static class RepairTests
         var route = new CapturePlan(new Profile { Rules = [new RoutingRule { Destinations = "*", Action = RuleAction.Block }] }).Entries[0];
         var table = new TcpFlowTable();
         var key = new FlowKey(IPAddress.Parse("192.0.2.1"), 1, IPAddress.Parse("203.0.113.10"), 443, false);
+        var flows = new List<TcpFlow>();
         for (var i = 0; i < TcpFlowTable.Capacity; i++)
         {
             var flow = table.Create(key with { LocalPort = i + 1 }, route, 1, 10001, 10002);
             Require(flow is not null, "Initial capacity");
-            Volatile.Write(ref flow!.Closed, Environment.TickCount64 - i);
+            flows.Add(flow!);
         }
-        Require(table.Create(key with { LocalPort = 60000 }, route, 1, 10001, 10002) is not null, "Recently closed flows blocked a new SYN at capacity");
+        // F-1a0b77: 방금 닫힌 흐름은 최소 보존 시간 동안 회수하지 않는다.
+        foreach (var flow in flows) table.MarkClosed(flow);
+        Require(table.Create(key with { LocalPort = 60000 }, route, 1, 10001, 10002) is null, "Flows closed moments ago were reclaimed before the minimum retention");
+        var aged = new TcpFlowTable();
+        for (var i = 0; i < TcpFlowTable.Capacity; i++)
+            aged.MarkClosed(aged.Create(key with { LocalPort = i + 1 }, route, 1, 10001, 10002)!, Environment.TickCount64 - TcpFlowTable.MinimumClosedRetention - 1000);
+        Require(aged.Create(key with { LocalPort = 60000 }, route, 1, 10001, 10002) is not null, "Old closed flows blocked a new SYN at capacity");
+        // F-4ac755 / F-b7e95e: 옛 흐름의 원래 주소 매핑만 끊고, 가상 포트 쪽(늦은 FIN 역변환용)은 남긴다.
+        var stale = new TcpFlowTable();
+        var old = stale.Create(key, route, 100, 10001, 10002)!;
+        stale.MarkClosed(old); stale.Forget(key, old);
+        Require(stale.Find(key) is null && stale.FindVirtual(old.VirtualPort) == old, "A new connection on the same 4-tuple must not reuse the closed proxy mapping");
         var linkKey = new FlowKey(IPAddress.Parse("fe80::1"), 50000, IPAddress.Parse("fe80::2"), 443, false);
         var linkTable = new TcpFlowTable();
         var linkFlow = linkTable.Create(linkKey, route, 1, 10001, 10002)!;
@@ -105,6 +117,85 @@ internal static class RepairTests
         Require(linkTable.Accept(new IPEndPoint(scopedPeer, linkFlow.VirtualPort), new IPEndPoint(scopedLocal, 10002)) == linkFlow, "IPv6 ScopeId rejected a link-local flow");
         Require(!TcpFlowTable.SameAddress(IPAddress.Parse("192.0.2.1"), IPAddress.Parse("::ffff:192.0.2.1")), "Address families must stay distinct");
         return Task.CompletedTask;
+    }
+
+    // F-4fe889 / F-3bc790: 미리 계산한 매칭 값과 첫 후보 위치부터 이어 찾는 결과가 처음부터 찾는 결과와 같다
+    public static Task PlanMatchingCache()
+    {
+        var plan = new CapturePlan(new Profile
+        {
+            Proxies = [new ProxyServer { Id = "s", Host = "127.0.0.1" }],
+            Rules = [new RoutingRule { Destinations = "203.0.113.0/24", Ports = "443", Action = RuleAction.Proxy, ProxyId = "s", ProcessName = "Chrome.EXE" },
+                new RoutingRule { Destinations = "203.0.113.10", Ports = "80, 443", Action = RuleAction.Block, Network = Transport.Both },
+                new RoutingRule { Destinations = "*", Action = RuleAction.Direct, Network = Transport.Both }]
+        });
+        Require(plan.NeedsProcessLookup && plan.Entries[0].Program == "Chrome", "Process lookup flag / normalized program name");
+        foreach (var ip in new[] { "203.0.113.10", "203.0.113.99", "198.51.100.1", "2001:db8::1" })
+            foreach (var port in new[] { 80, 443, 8080 })
+                foreach (var udp in new[] { false, true })
+                    foreach (var name in new[] { "chrome", "CHROME", "other", null })
+                    {
+                        var address = IPAddress.Parse(ip);
+                        var first = plan.FirstIndex(address, port, udp);
+                        Require(ReferenceEquals(plan.Match(address, port, udp, name), plan.Match(address, port, udp, name, first)), $"Match from first candidate differs ({ip}:{port} udp={udp} {name})");
+                    }
+        Require(plan.Match(IPAddress.Parse("203.0.113.10"), 443, false, "chrome")?.Action == RuleAction.Proxy, "Process rule with .exe in the rule name");
+        Require(plan.Match(IPAddress.Parse("203.0.113.10"), 443, false, "other")?.Action == RuleAction.Block, "Next rule after a process mismatch");
+        var packet = IpPacket.UdpReply(new FlowKey(IPAddress.Parse("192.0.2.1"), 5000, IPAddress.Parse("203.0.113.1"), 53, true), "x"u8);
+        Require(IpPacket.TryParse(packet, out var parsed), "Fixture parse");
+        try { parsed.Rewrite(packet, IPAddress.Parse("2001:db8::1"), 1, IPAddress.Parse("2001:db8::2"), 2); throw new Exception("Address family mismatch was written into an IPv4 packet"); }
+        catch (ArgumentException) { }
+        return Task.CompletedTask;
+    }
+
+    // F-10f876: SOCKS5 UDP 응답 출발지 확인을 할당 없이 수행
+    public static Task DatagramSourceMatching()
+    {
+        var v4 = IPAddress.Parse("203.0.113.10"); var v6 = IPAddress.Parse("2001:db8::10");
+        byte[] Datagram(IPAddress address, int port) => new byte[] { 0, 0, 0 }.Concat(ProxyConnector.EncodeAddress(new IPEndPoint(address, port))).Concat("data"u8.ToArray()).ToArray();
+        Require(ProxyConnector.TryMatchDatagram(Datagram(v4, 53), v4, 53, out var offset) && offset == 10, "IPv4 source match");
+        Require(ProxyConnector.TryMatchDatagram(Datagram(v6, 53), v6, 53, out offset) && offset == 22, "IPv6 source match");
+        Require(!ProxyConnector.TryMatchDatagram(Datagram(v4, 54), v4, 53, out _), "Wrong port accepted");
+        Require(!ProxyConnector.TryMatchDatagram(Datagram(IPAddress.Parse("203.0.113.11"), 53), v4, 53, out _), "Wrong address accepted");
+        Require(!ProxyConnector.TryMatchDatagram(Datagram(v6, 53), v4, 53, out _), "Different address family accepted");
+        var fragment = Datagram(v4, 53); fragment[2] = 1;
+        Require(!ProxyConnector.TryMatchDatagram(fragment, v4, 53, out _), "SOCKS fragment accepted");
+        return Task.CompletedTask;
+    }
+
+    // F-a8b80e / F-a09b07: 프로세스 이름 직접 조회와 PID 재사용 판정
+    public static Task ProcessNameLookup()
+    {
+        var pid = Environment.ProcessId;
+        var expected = Path.GetFileName(Environment.ProcessPath!);
+        Require(string.Equals(ProcessNames.FileName(pid), expected, StringComparison.OrdinalIgnoreCase), $"Image name lookup returned {ProcessNames.FileName(pid)}");
+        Require(string.Equals(ProcessNames.FileName(pid), ProcessNames.FileName(pid), StringComparison.Ordinal), "Cached name differs");
+        Require(string.Equals(SocketOwners.Name(pid), Path.GetFileNameWithoutExtension(expected), StringComparison.OrdinalIgnoreCase), "Rule comparison name keeps .exe");
+        Require(ProcessNames.FileName(pid, DateTime.UtcNow.AddYears(-20)) is null, "A process created after the event time must not supply its name");
+        return Task.CompletedTask;
+    }
+
+    // F-7c00e2: 한쪽이 반종료한 뒤 상대가 닫지 않아도 유휴 시간이 지나면 중계가 정상 종료된다
+    public static async Task HalfCloseIdleTimeout()
+    {
+        var previous = ProxyConnector.HalfCloseIdle;
+        ProxyConnector.HalfCloseIdle = TimeSpan.FromMilliseconds(400);
+        using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            using var appListener = new TcpListener(IPAddress.Loopback, 0); appListener.Start();
+            using var proxyListener = new TcpListener(IPAddress.Loopback, 0); proxyListener.Start();
+            using var app = new TcpClient(); await app.ConnectAsync((IPEndPoint)appListener.LocalEndpoint, watchdog.Token);
+            using var accepted = await appListener.AcceptTcpClientAsync(watchdog.Token);
+            var upstream = new TcpClient(); await upstream.ConnectAsync((IPEndPoint)proxyListener.LocalEndpoint, watchdog.Token);
+            using var silentPeer = await proxyListener.AcceptTcpClientAsync(watchdog.Token);
+            using var connection = new ProxyConnection(upstream, new SocketBypass().Register(false, 1));
+            var relay = ProxyConnector.RelayAsync(accepted, connection, (_, _) => { }, watchdog.Token);
+            app.Client.Shutdown(SocketShutdown.Send);   // 앱은 FIN, 상대(silentPeer)는 끝까지 닫지 않음
+            await relay.WaitAsync(TimeSpan.FromSeconds(5));
+            Require(relay.IsCompletedSuccessfully, "Half-closed idle relay did not finish normally");
+        }
+        finally { ProxyConnector.HalfCloseIdle = previous; }
     }
 
     // F-e31ebc / F-3792a5: 예상 밖 예외가 UDP association의 Completion을 fault시키지 않는다

@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Channels;
@@ -18,7 +19,10 @@ internal sealed class DatagramBudget
 
 internal sealed class UdpAssociation : IDisposable
 {
-    private readonly Channel<byte[]> queue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(32) { SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.Wait });
+    // 큐에는 SOCKS5 UDP 헤더까지 붙인 송신 형태의 풀 버퍼를 넣어, 전송할 때 다시 복사하지 않는다.
+    private readonly Channel<(byte[] Buffer, int Length)> queue = Channel.CreateBounded<(byte[] Buffer, int Length)>(new BoundedChannelOptions(32) { SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.Wait });
+    // SOCKS5 UDP 헤더(RSV·FRAG·원래 목적지)는 흐름마다 고정이라 한 번만 만든다.
+    private readonly byte[] prefix;
     private readonly CancellationTokenSource stop;
     private readonly DatagramBudget budget;
     private int disposed;
@@ -27,6 +31,8 @@ internal sealed class UdpAssociation : IDisposable
     public long OwnerChecked = Environment.TickCount64;
     // 종료 시각. 실패한 association을 곧바로 재생성해 프록시에 연결 폭주를 일으키지 않도록 쓴다.
     public long Finished;
+    // 프로세스 조건 규칙으로 만든 association만 소유 프로세스를 주기적으로 다시 확인한다.
+    public bool CheckOwner { get; init; }
     public string ProxyId { get; }
     public Task Completion { get; }
 
@@ -34,15 +40,18 @@ internal sealed class UdpAssociation : IDisposable
         Action<byte[]> received, Action<int, bool> count, Action<Exception> failed, CancellationToken token)
     {
         this.budget = budget; ProxyId = proxy.Id; stop = CancellationTokenSource.CreateLinkedTokenSource(token);
+        prefix = new byte[] { 0, 0, 0 }.Concat(ProxyConnector.EncodeAddress(new IPEndPoint(flow.RemoteAddress, flow.RemotePort))).ToArray();
         Completion = Run(flow, proxy, server, bypass, received, count, failed);
     }
     public bool Enqueue(ReadOnlySpan<byte> payload)
     {
         Volatile.Write(ref LastSeen, Environment.TickCount64);
         if (stop.IsCancellationRequested || !budget.TryReserve(payload.Length)) return false;
-        var bytes = payload.ToArray();
-        if (queue.Writer.TryWrite(bytes)) return true;
-        budget.Release(bytes.Length); return false;
+        var length = prefix.Length + payload.Length;
+        var buffer = ArrayPool<byte>.Shared.Rent(length);
+        prefix.CopyTo(buffer, 0); payload.CopyTo(buffer.AsSpan(prefix.Length));
+        if (queue.Writer.TryWrite((buffer, length))) return true;
+        ArrayPool<byte>.Shared.Return(buffer); budget.Release(payload.Length); return false;
     }
     private async Task Run(FlowKey flow, ProxyServer proxy, IPEndPoint server, SocketBypass bypass,
         Action<byte[]> received, Action<int, bool> count, Action<Exception> failed)
@@ -61,37 +70,37 @@ internal sealed class UdpAssociation : IDisposable
             var relay = addresses.FirstOrDefault(a => a.AddressFamily == server.AddressFamily) ?? throw new Socks5Exception("SOCKS5 UDP 중계 주소의 IP 계열이 프록시 서버와 다릅니다.");
             if (relay.Equals(IPAddress.Any) || relay.Equals(IPAddress.IPv6Any)) relay = server.Address;
             udp.Connect(new IPEndPoint(relay, bound.Port));
-            var prefix = new byte[] { 0, 0, 0 }.Concat(ProxyConnector.EncodeAddress(new IPEndPoint(flow.RemoteAddress, flow.RemotePort))).ToArray();
             async Task Send()
             {
-                await foreach (var payload in queue.Reader.ReadAllAsync(stop.Token))
+                await foreach (var (buffer, length) in queue.Reader.ReadAllAsync(stop.Token))
                 {
+                    var payloadLength = length - prefix.Length;
                     try
                     {
-                        if (prefix.Length + payload.Length > IpPacket.MaxUdpPayload(server.AddressFamily == AddressFamily.InterNetwork)) { failed(new Socks5Exception("UDP 데이터그램이 SOCKS5 중계 한도보다 커서 버렸습니다.")); continue; }
-                        var datagram = new byte[prefix.Length + payload.Length]; prefix.CopyTo(datagram, 0); payload.CopyTo(datagram, prefix.Length);
-                        await udp.SendAsync(datagram, stop.Token); count(payload.Length, true);
+                        if (length > IpPacket.MaxUdpPayload(server.AddressFamily == AddressFamily.InterNetwork)) { failed(new Socks5Exception("UDP 데이터그램이 SOCKS5 중계 한도보다 커서 버렸습니다.")); continue; }
+                        await udp.SendAsync(buffer.AsMemory(0, length), stop.Token); count(payloadLength, true);
                     }
-                    finally { budget.Release(payload.Length); }
+                    finally { budget.Release(payloadLength); ArrayPool<byte>.Shared.Return(buffer); }
                 }
             }
             async Task Receive()
             {
+                // 수신 버퍼는 association마다 하나를 재사용하고, 출발지 확인도 객체를 만들지 않고 한다.
+                var buffer = new byte[65536];
                 while (!stop.IsCancellationRequested)
                 {
-                    var datagram = await udp.ReceiveAsync(stop.Token);
-                    if (!ProxyConnector.TryDecodeDatagram(datagram.Buffer, out var source, out var offset)
-                        || source!.Port != flow.RemotePort || !source.Address.Equals(flow.RemoteAddress)) continue;
+                    var size = await udp.Client.ReceiveAsync(buffer.AsMemory(), SocketFlags.None, stop.Token);
+                    if (!ProxyConnector.TryMatchDatagram(buffer.AsSpan(0, size), flow.RemoteAddress, flow.RemotePort, out var offset)) continue;
                     Volatile.Write(ref LastSeen, Environment.TickCount64);
                     if (stop.IsCancellationRequested) return;
                     // 앱 쪽 주소 계열로 다시 만들 수 없는 크기의 응답은 이 데이터그램만 버린다.
-                    if (datagram.Buffer.Length - offset > IpPacket.MaxUdpPayload(flow.LocalAddress.AddressFamily == AddressFamily.InterNetwork))
+                    if (size - offset > IpPacket.MaxUdpPayload(flow.LocalAddress.AddressFamily == AddressFamily.InterNetwork))
                     {
                         failed(new Socks5Exception("SOCKS5 UDP 응답이 너무 커서 버렸습니다."));
                         continue;
                     }
-                    received(IpPacket.UdpReply(flow, datagram.Buffer.AsSpan(offset)));
-                    count(datagram.Buffer.Length - offset, false);
+                    received(IpPacket.UdpReply(flow, buffer.AsSpan(offset, size - offset)));
+                    count(size - offset, false);
                 }
             }
             async Task WatchControl()
@@ -119,7 +128,7 @@ internal sealed class UdpAssociation : IDisposable
         {
             Volatile.Write(ref Finished, Environment.TickCount64);
             stop.Cancel(); queue.Writer.TryComplete();
-            while (queue.Reader.TryRead(out var remaining)) budget.Release(remaining.Length);
+            while (queue.Reader.TryRead(out var remaining)) { budget.Release(remaining.Length - prefix.Length); ArrayPool<byte>.Shared.Return(remaining.Buffer); }
         }
     }
     public void Dispose()

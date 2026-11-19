@@ -4,9 +4,7 @@
 
 ProxyWin uses WinDivert 2.2.2 to apply ordered **DIRECT**, **PROXY**, and **BLOCK** rules to outbound TCP/UDP traffic. No virtual adapter or system route changes are needed.
 
-**[Download the latest release](https://github.com/kdy425/proxy/releases/latest)** — Windows x64 ZIP and SHA-256 checksum · [CI status](https://github.com/kdy425/proxy/actions/workflows/ci-release.yml)
-
-Korean-UI edition of [pshho/ProxyWin](https://github.com/pshho/ProxyWin) by SEONGHO PARK, modified and redistributed with the original author's permission. The startup update check was removed; releases of this edition are published only in this repository.
+**[Download the latest release](https://github.com/pshho/ProxyWin/releases/latest)** — Windows x64 ZIP and SHA-256 checksum · [CI status](https://github.com/pshho/ProxyWin/actions/workflows/ci-release.yml)
 
 ![ProxyWin Korean GUI with sample rules and connections](docs/images/main.png)
 
@@ -26,7 +24,7 @@ Korean-UI edition of [pshho/ProxyWin](https://github.com/pshho/ProxyWin) by SEON
 
 ## Download and run
 
-1. Download the ZIP from [Releases](https://github.com/kdy425/proxy/releases/latest).
+1. Download the ZIP from [Releases](https://github.com/pshho/ProxyWin/releases/latest).
 2. Extract the **entire** archive. Keep its runtime files and `driver` directory together.
 3. Run `ProxyWin.exe` as administrator to apply rules or monitor connections.
 
@@ -172,8 +170,8 @@ See the [unload and HTTP diagnostics verification](docs/verification/2026-09-18-
 Use the **.NET 10 SDK on Windows x64** and PowerShell. There are no external NuGet package dependencies.
 
 ```powershell
-git clone https://github.com/kdy425/proxy.git
-cd proxy
+git clone https://github.com/pshho/ProxyWin.git
+cd ProxyWin
 ./scripts/Build.ps1
 ```
 

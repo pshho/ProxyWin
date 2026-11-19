@@ -67,6 +67,7 @@ public static class ProxyConnector
         {
             await client.ConnectAsync(server.Address, server.Port, timeout.Token);
             connected = true;
+            EnableKeepAlive(client.Client);
             if (proxy.Kind == ProxyKind.Socks5)
             {
                 await AuthenticateAsync(connection.Stream, proxy, timeout.Token);
@@ -86,8 +87,16 @@ public static class ProxyConnector
                     var start = count; var complete = false;
                     while (count < header.Length)
                     {
-                        await connection.Stream.ReadExactlyAsync(header.AsMemory(count, 1), timeout.Token); count++;
-                        if (count - start >= 4 && header.AsSpan(count - 4, 4).SequenceEqual("\r\n\r\n"u8)) { complete = true; break; }
+                        // 헤더 끝(\r\n\r\n)을 찾을 때까지 덩어리로 엿보고(Peek) 헤더 부분만 소비한다.
+                        // 헤더 바로 뒤에 붙어 온 터널 바이트는 소켓에 남아 중계 단계가 그대로 읽는다.
+                        var peeked = await PeekAsync(client.Client, header.AsMemory(count), timeout.Token);
+                        if (peeked == 0) throw new EndOfStreamException();
+                        var from = Math.Max(start, count - 3);
+                        var end = header.AsSpan(from, count + peeked - from).IndexOf("\r\n\r\n"u8);
+                        var take = end < 0 ? peeked : from + end + 4 - count;
+                        await connection.Stream.ReadExactlyAsync(header.AsMemory(count, take), timeout.Token);
+                        count += take;
+                        if (end >= 0) { complete = true; break; }
                     }
                     var firstLine = Encoding.ASCII.GetString(header, start, count - start).Split("\r\n")[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     if (!complete || firstLine.Length < 2 || firstLine[0] is not ("HTTP/1.0" or "HTTP/1.1")
@@ -113,6 +122,27 @@ public static class ProxyConnector
         }
         catch (IOException ex) when (connected) { connection.Dispose(); throw new ProxyHandshakeException(proxy.Kind, ex); }
         catch { connection.Dispose(); throw; }
+    }
+
+    private static async ValueTask<int> PeekAsync(Socket socket, Memory<byte> buffer, CancellationToken token)
+    {
+        try { return await socket.ReceiveAsync(buffer, SocketFlags.Peek, token); }
+        // 스트림 읽기와 같은 진단 경로(IOException 안의 SocketException)로 보낸다.
+        catch (SocketException ex) { throw new IOException(ex.Message, ex); }
+    }
+
+    // 경로가 끊긴 연결(NAT 만료·Wi-Fi 전환·프록시 다운)을 감지하도록 TCP KeepAlive를 켠다.
+    // 세부 값을 지원하지 않는 Windows에서는 기본 KeepAlive만 적용된다.
+    internal static void EnableKeepAlive(Socket socket)
+    {
+        try
+        {
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 120);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 15);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, 4);
+        }
+        catch (SocketException) { }
     }
 
     private static async Task AuthenticateAsync(NetworkStream stream, ProxyServer proxy, CancellationToken token)
@@ -173,6 +203,24 @@ public static class ProxyConnector
         payloadOffset = 6 + addressLength; return true;
     }
 
+    // SOCKS5 UDP 응답 헤더를 객체 할당 없이 확인해, 원래 목적지에서 온 데이터그램인지와 페이로드 위치를 구한다.
+    public static bool TryMatchDatagram(ReadOnlySpan<byte> datagram, IPAddress source, int port, out int payloadOffset)
+    {
+        payloadOffset = 0;
+        if (datagram.Length < 4 || datagram[0] != 0 || datagram[1] != 0 || datagram[2] != 0) return false;
+        var addressLength = datagram[3] switch { 1 => 4, 4 => 16, _ => 0 };
+        if (addressLength == 0 || datagram.Length < 6 + addressLength) return false;
+        Span<byte> expected = stackalloc byte[16];
+        if (!source.TryWriteBytes(expected, out var length) || length != addressLength
+            || !datagram.Slice(4, addressLength).SequenceEqual(expected[..length])
+            || BinaryPrimitives.ReadUInt16BigEndian(datagram[(4 + addressLength)..]) != port) return false;
+        payloadOffset = 6 + addressLength; return true;
+    }
+
+    // 한쪽이 반종료(FIN)한 뒤 남은 방향에 이 시간 동안 데이터가 없으면 중계를 끝낸다.
+    // (상대가 끝내 닫지 않으면 중계 작업·슬롯·흐름이 남는 것을 막는다.)
+    internal static TimeSpan HalfCloseIdle = TimeSpan.FromMinutes(5);
+
     public static async Task RelayAsync(TcpClient client, ProxyConnection proxy, Action<int, bool> count, CancellationToken token)
     {
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -180,21 +228,42 @@ public static class ProxyConnector
         // TcpClient.GetStream() may reject calls after Shutdown(Send), even while
         // its existing NetworkStream remains readable.
         var clientStream = client.GetStream(); var proxyStream = proxy.Stream;
+        var halfClosed = 0;
         async Task Pump(NetworkStream input, NetworkStream output, Socket outputSocket, bool upload)
         {
-            var buffer = ArrayPool<byte>.Shared.Rent(65536);
             try
             {
                 while (true)
                 {
-                    var length = await input.ReadAsync(buffer, stop.Token);
-                    if (length == 0) { outputSocket.Shutdown(SocketShutdown.Send); break; }
-                    await output.WriteAsync(buffer.AsMemory(0, length), stop.Token); count(length, upload);
+                    // 데이터가 올 때까지 버퍼 없이 기다린다(유휴 연결이 64 KiB 버퍼를 계속 쥐지 않도록).
+                    // 0바이트 읽기는 대기 용도라 반환값(항상 0)을 쓰지 않는다.
+#pragma warning disable CA2022
+                    await input.ReadAsync(Memory<byte>.Empty, stop.Token);
+#pragma warning restore CA2022
+                    var buffer = ArrayPool<byte>.Shared.Rent(65536);
+                    try
+                    {
+                        var length = await input.ReadAsync(buffer, stop.Token);
+                        if (length == 0)
+                        {
+                            outputSocket.Shutdown(SocketShutdown.Send);
+                            if (Interlocked.Exchange(ref halfClosed, 1) == 0) stop.CancelAfter(HalfCloseIdle);
+                            return;
+                        }
+                        await output.WriteAsync(buffer.AsMemory(0, length), stop.Token); count(length, upload);
+                    }
+                    finally { ArrayPool<byte>.Shared.Return(buffer); }
+                    // 반종료 이후에는 데이터가 오가는 동안만 유휴 시간을 연장한다.
+                    if (Volatile.Read(ref halfClosed) != 0) stop.CancelAfter(HalfCloseIdle);
                 }
             }
             catch { stop.Cancel(); throw; }
-            finally { ArrayPool<byte>.Shared.Return(buffer); }
         }
-        await Task.WhenAll(Pump(clientStream, proxyStream, proxy.Client.Client, true), Pump(proxyStream, clientStream, client.Client, false));
+        try { await Task.WhenAll(Pump(clientStream, proxyStream, proxy.Client.Client, true), Pump(proxyStream, clientStream, client.Client, false)); }
+        catch (Exception ex) when ((ex is OperationCanceledException or IOException) && !token.IsCancellationRequested
+            && Volatile.Read(ref halfClosed) != 0 && stop.IsCancellationRequested)
+        {
+            // 반종료 후 유휴 시간 초과로 정리한 경우: 오류가 아니라 정상 종료로 본다.
+        }
     }
 }

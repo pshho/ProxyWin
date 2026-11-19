@@ -23,7 +23,8 @@ public partial class MainWindow : Window
     private readonly Func<string, CancellationToken, Task<string>> resolveDestinations;
     private Profile profile = new();
     private bool busy, closing, closed, loadFailed;
-    private bool resolving;
+    private bool resolving, saving;
+    private Task? pendingSave;
     private readonly CancellationTokenSource lifetime = new();
     private Task? cleanupGuard;
     private readonly ConcurrentQueue<string> pendingLogs = new();
@@ -85,7 +86,7 @@ public partial class MainWindow : Window
         public string ActionLabel => Rule.ActionLabel;
         public string ProcessLabel => Rule.ProcessName.Length == 0 ? "전체" : Rule.ProcessName;
     }
-    private bool CanEdit => !busy && !resolving && !closing && !engine.IsRunning && !loadFailed;
+    private bool CanEdit => !busy && !resolving && !saving && !closing && !engine.IsRunning && !loadFailed;
     private RuleAction SelectedAction => (RuleAction)Math.Max(0, ActionBox.SelectedIndex);
     private void Refresh(string? selectedProxy = null)
     {
@@ -129,16 +130,29 @@ public partial class MainWindow : Window
         };
         RuleHint.Foreground = (Brush)FindResource(SelectedAction == RuleAction.Proxy && proxy is null ? "WarnInk" : "Muted");
     }
-    private bool Change(Action<Profile> mutation, string? selected = null)
+    // 설정 저장(DPAPI 암호화·디스크 flush)은 UI 스레드를 멈추지 않도록 백그라운드에서 한다.
+    // 저장이 끝날 때까지 다음 편집은 받지 않아 저장 순서가 섞이지 않고(화면은 그대로 둠),
+    // 실패하면 메모리의 설정도 바꾸지 않아 이전 상태가 유지된다.
+    private async Task<bool> ChangeAsync(Action<Profile> mutation, string? selected = null)
     {
         if (!CanEdit) return false;
+        saving = true;
+        Profile next;
         try
         {
-            var next = JsonSerializer.Deserialize<Profile>(JsonSerializer.Serialize(profile))!; mutation(next);
-            RuleParser.Validate(next); if (!smokeMode) store.Save(next);
-            profile = next; Refresh(selected); return true;
+            next = JsonSerializer.Deserialize<Profile>(JsonSerializer.Serialize(profile))!; mutation(next);
+            RuleParser.Validate(next);
+            if (!smokeMode)
+            {
+                var target = store; var snapshot = next;
+                pendingSave = Task.Run(() => target.Save(snapshot));
+                await pendingSave;
+            }
         }
-        catch (Exception ex) { Error(ex); return false; }
+        catch (Exception ex) { saving = false; if (!closing) Error(ex); return false; }
+        saving = false;
+        profile = next; if (!closing) Refresh(selected);
+        return true;
     }
     // RoutingRule은 record라 IndexOf는 값 비교를 한다. 내용이 같은 중복 규칙에서
     // 엉뚱한 행이 바뀌지 않도록 선택한 행의 객체 자체로 위치를 찾는다.
@@ -151,29 +165,29 @@ public partial class MainWindow : Window
     }
     private static string Describe(RoutingRule rule) =>
         $"{rule.ActionLabel} · {(rule.ProcessName.Length == 0 ? "모든 프로그램" : rule.ProcessName)} → {rule.Destinations} : {rule.Ports} ({rule.NetworkLabel})";
-    private void AddProxy(object sender, RoutedEventArgs e)
+    private async void AddProxy(object sender, RoutedEventArgs e)
     {
         if (!CanEdit) return;
         var dialog = new ProxyDialog(null) { Owner = this };
-        if (dialog.ShowDialog() == true && Change(p => p.Proxies.Add(dialog.Result!), dialog.Result!.Id))
+        if (dialog.ShowDialog() == true && await ChangeAsync(p => p.Proxies.Add(dialog.Result!), dialog.Result!.Id))
         {
             QueueLog($"프록시 서버 추가: {dialog.Result.Summary}");
             // 서버를 처음 등록했다면 다음 단계(규칙 대상 입력)로 바로 안내한다.
             if (profile.Rules.Count == 0) { ActionBox.SelectedIndex = (int)RuleAction.Proxy; TargetBox.Focus(); }
         }
     }
-    private void EditProxy(object sender, RoutedEventArgs e)
+    private async void EditProxy(object sender, RoutedEventArgs e)
     {
         if (!CanEdit || ProxyBox.SelectedItem is not ProxyServer proxy) return;
         var dialog = new ProxyDialog(proxy) { Owner = this };
-        if (dialog.ShowDialog() == true) Change(p => p.Proxies[p.Proxies.FindIndex(x => x.Id == proxy.Id)] = dialog.Result!, proxy.Id);
+        if (dialog.ShowDialog() == true) await ChangeAsync(p => p.Proxies[p.Proxies.FindIndex(x => x.Id == proxy.Id)] = dialog.Result!, proxy.Id);
     }
-    private void DeleteProxy(object sender, RoutedEventArgs e)
+    private async void DeleteProxy(object sender, RoutedEventArgs e)
     {
         if (!CanEdit || ProxyBox.SelectedItem is not ProxyServer proxy) return;
         var used = profile.Rules.Count(r => r.Action == RuleAction.Proxy && r.ProxyId == proxy.Id);
         if (used > 0) { Error(new InvalidOperationException($"'{proxy.Name}' 서버를 쓰는 규칙이 {used}개 있습니다. 해당 규칙을 먼저 삭제하거나 [수정]에서 다른 서버로 바꾸세요.")); return; }
-        if (AppMessages.Confirm(this, $"프록시 서버 '{proxy.Name}'을(를) 삭제할까요?", "서버 삭제")) Change(p => p.Proxies.RemoveAll(x => x.Id == proxy.Id));
+        if (AppMessages.Confirm(this, $"프록시 서버 '{proxy.Name}'을(를) 삭제할까요?", "서버 삭제")) await ChangeAsync(p => p.Proxies.RemoveAll(x => x.Id == proxy.Id));
     }
     private async void AddTarget(object sender, RoutedEventArgs e) => await AddTargetAsync();
     private async Task AddTargetAsync()
@@ -199,10 +213,10 @@ public partial class MainWindow : Window
             if (existing >= 0)
             {
                 // 같은 규칙을 또 만들지 않고 기존 규칙을 보여 준다(꺼져 있으면 다시 켬).
-                if (!profile.Rules[existing].Enabled && !Change(p => p.Rules[existing].Enabled = true)) return;
+                if (!profile.Rules[existing].Enabled && !await ChangeAsync(p => p.Rules[existing].Enabled = true)) return;
                 QueueLog(ExistingRuleMessage); SelectRule(existing); return;
             }
-            if (Change(p => p.Rules.Add(rule)))
+            if (await ChangeAsync(p => p.Rules.Add(rule)))
             {
                 QueueLog("규칙 추가: " + Describe(rule));
                 SelectRule(profile.Rules.Count - 1);
@@ -227,38 +241,43 @@ public partial class MainWindow : Window
         ActionBox.SelectedIndex = (int)RuleAction.Proxy; ProcessBox.Text = "";
         TargetBox.Focus(); TargetBox.SelectAll();
     }
-    private void EditRule(object sender, RoutedEventArgs e)
+    private async void EditRule(object sender, RoutedEventArgs e)
     {
         if (!CanEdit || RulesGrid.SelectedItem is not RuleRow row) return;
         var index = IndexOf(row); if (index < 0) return;
         var dialog = new RuleDialog(row.Rule, profile.Proxies) { Owner = this };
-        if (dialog.ShowDialog() == true && Change(p => p.Rules[index] = dialog.Result!)) SelectRule(index);
+        if (dialog.ShowDialog() == true && await ChangeAsync(p => p.Rules[index] = dialog.Result!)) SelectRule(index);
     }
-    private void DeleteRule(object sender, RoutedEventArgs e)
+    private async void DeleteRule(object sender, RoutedEventArgs e)
     {
         if (!CanEdit || RulesGrid.SelectedItem is not RuleRow row) return;
         var index = IndexOf(row); if (index < 0) return;
-        Change(p => p.Rules.RemoveAt(index));
+        await ChangeAsync(p => p.Rules.RemoveAt(index));
     }
-    private void ToggleRule(object sender, RoutedEventArgs e)
+    private async void ToggleRule(object sender, RoutedEventArgs e)
     {
-        if (!CanEdit || sender is not CheckBox { DataContext: RuleRow row } check) return;
-        var index = IndexOf(row);
-        if (index < 0 || !Change(p => p.Rules[index].Enabled = check.IsChecked == true))
+        if (sender is CheckBox check) await ToggleRuleAsync(check);
+    }
+    internal async Task ToggleRuleAsync(CheckBox check)
+    {
+        if (check.DataContext is not RuleRow row) return;
+        var index = CanEdit ? IndexOf(row) : -1;
+        // 편집할 수 없거나 저장에 실패하면 체크 상태를 실제 설정값으로 되돌린다.
+        if (index < 0 || !await ChangeAsync(p => p.Rules[index].Enabled = check.IsChecked == true))
             check.SetCurrentValue(CheckBox.IsCheckedProperty, row.Rule.Enabled);
     }
     private void MoveRuleUp(object sender, RoutedEventArgs e) => MoveRule(-1);
     private void MoveRuleDown(object sender, RoutedEventArgs e) => MoveRule(1);
-    private void MoveRule(int delta)
+    private async void MoveRule(int delta)
     {
         if (!CanEdit || RulesGrid.SelectedItem is not RuleRow row) return;
         var index = IndexOf(row); var target = index + delta;
         if (index < 0 || target < 0 || target >= profile.Rules.Count) return;
-        if (Change(p => { var item = p.Rules[index]; p.Rules.RemoveAt(index); p.Rules.Insert(target, item); })) SelectRule(target);
+        if (await ChangeAsync(p => { var item = p.Rules[index]; p.Rules.RemoveAt(index); p.Rules.Insert(target, item); })) SelectRule(target);
     }
     private async void ToggleEngine(object sender, RoutedEventArgs e)
     {
-        if (busy || resolving || closing || smokeMode || loadFailed) return;
+        if (busy || resolving || saving || closing || smokeMode || loadFailed) return;
         busy = true; Refresh();
         try
         {
@@ -267,7 +286,8 @@ public partial class MainWindow : Window
             {
                 _ = new CapturePlan(profile);
                 if (!IsAdministrator()) throw new InvalidOperationException(NeedsAdministrator);
-                store.Save(profile); await EnsureCleanupGuardAsync();
+                var target = store; var snapshot = profile;
+                await Task.Run(() => target.Save(snapshot)); await EnsureCleanupGuardAsync();
                 if (closing) return;
                 await engine.StartAsync(profile);
             }
@@ -347,7 +367,7 @@ public partial class MainWindow : Window
         ObservationEmpty.Visibility = observations.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         var row = ObservationGrid.SelectedItem as ObservedConnection;
         var proxy = ProxyBox.SelectedItem as ProxyServer;
-        string? reason = !CanEdit ? "규칙 적용 중에는 규칙을 추가할 수 없습니다. [■ 적용 중지] 후 추가하세요(모니터는 계속 켜 둘 수 있음)."
+        string? reason = saving ? "설정을 저장하는 중입니다." : !CanEdit ? "규칙 적용 중에는 규칙을 추가할 수 없습니다. [■ 적용 중지] 후 추가하세요(모니터는 계속 켜 둘 수 있음)."
             : SelectedAction == RuleAction.Proxy && proxy is null ? "PROXY 규칙에는 서버가 필요합니다. 먼저 ①에서 [+ 서버 추가]를 누르세요."
             : row is null ? "위 목록에서 연결(행)을 하나 선택하세요."
             : !row.CanRoute ? "로컬·멀티캐스트·IPv6 링크로컬 연결은 규칙으로 보낼 수 없습니다."
@@ -356,7 +376,8 @@ public partial class MainWindow : Window
         AddObservedButton.IsEnabled = reason is null;
         AddObservedButton.ToolTip = reason ?? $"선택한 연결로 {SelectedAction.ToString().ToUpperInvariant()} 규칙을 추가합니다(동작은 ②, 서버는 ①에서 선택한 값).";
     }
-    private void AddObservedRule(object sender, RoutedEventArgs e)
+    private async void AddObservedRule(object sender, RoutedEventArgs e) => await AddObservedRuleAsync();
+    internal async Task AddObservedRuleAsync()
     {
         if (!CanEdit || ObservationGrid.SelectedItem is not ObservedConnection row) return;
         try
@@ -367,12 +388,12 @@ public partial class MainWindow : Window
             var index = profile.Rules.FindIndex(r => SameRule(r, rule));
             if (index >= 0)
             {
-                if (!profile.Rules[index].Enabled && !Change(p => p.Rules[index].Enabled = true)) return;
+                if (!profile.Rules[index].Enabled && !await ChangeAsync(p => p.Rules[index].Enabled = true)) return;
                 QueueLog(ExistingRuleMessage);
             }
             else
             {
-                if (!Change(p => p.Rules.Add(rule))) return;
+                if (!await ChangeAsync(p => p.Rules.Add(rule))) return;
                 index = profile.Rules.Count - 1;
                 QueueLog("규칙 추가: " + Describe(rule));
             }
@@ -405,7 +426,7 @@ public partial class MainWindow : Window
     {
         if (!smokeMode) throw new InvalidOperationException();
         if (RuleEmpty.Visibility != Visibility.Visible || !RuleHint.Text.Contains("서버가 필요")) throw new InvalidOperationException("Getting-started guide or missing-server hint not shown.");
-        Change(p => { p.Proxies.Add(new ProxyServer { Id = "sample", Name = "Local SOCKS5", Host = "127.0.0.1" }); p.Proxies.Add(new ProxyServer { Id = "burp", Name = "Burp · 127.0.0.1:8080", Host = "127.0.0.1", Port = 8080, Kind = ProxyKind.Http }); }, "burp");
+        _ = ChangeAsync(p => { p.Proxies.Add(new ProxyServer { Id = "sample", Name = "Local SOCKS5", Host = "127.0.0.1" }); p.Proxies.Add(new ProxyServer { Id = "burp", Name = "Burp · 127.0.0.1:8080", Host = "127.0.0.1", Port = 8080, Kind = ProxyKind.Http }); }, "burp");
         if (!RuleHint.Text.Contains("TCP만")) throw new InvalidOperationException("Selected HTTP proxy hint not shown.");
         TargetBox.Text = "203.0.113.10"; PortBox.Text = "443"; ProcessBox.Text = "chrome.exe"; AddTarget(this, new RoutedEventArgs());
         ProxyBox.SelectedValue = "sample"; TargetBox.Text = "2001:db8::/32"; PortBox.Text = "5000-5100"; ProcessBox.Text = ""; ProtocolBox.SelectedIndex = 1; AddTarget(this, new RoutedEventArgs());
@@ -455,12 +476,12 @@ public partial class MainWindow : Window
             || profile.Rules[^1].Ports != "80, 443, 8000-9000") throw new InvalidOperationException("Comma-separated quick-add failed.");
         // 값이 같은 중복 규칙(파일 직접 편집 등): 선택한 행 자체가 이동·토글되어야 한다.
         var twin = new RoutingRule { Name = "twin", Destinations = "198.51.100.77", Ports = "443", Action = RuleAction.Direct };
-        Change(p => { p.Rules.Add(twin with { }); p.Rules.Add(twin with { }); });
+        _ = ChangeAsync(p => { p.Rules.Add(twin with { }); p.Rules.Add(twin with { }); });
         RulesGrid.SelectedIndex = profile.Rules.Count - 1; MoveRule(-1);
         if (profile.Rules[^3].Name == "twin" || RulesGrid.SelectedIndex != profile.Rules.Count - 2) throw new InvalidOperationException("Moving a duplicate rule moved the wrong row.");
         ToggleRule(new CheckBox { DataContext = (RuleRow)RulesGrid.Items[profile.Rules.Count - 1], IsChecked = false }, new RoutedEventArgs());
         if (!profile.Rules[^2].Enabled || profile.Rules[^1].Enabled) throw new InvalidOperationException("Toggling a duplicate rule changed the wrong row.");
-        Change(p => p.Rules.RemoveRange(p.Rules.Count - 2, 2));
+        _ = ChangeAsync(p => p.Rules.RemoveRange(p.Rules.Count - 2, 2));
         RulesGrid.SelectedIndex = profile.Rules.Count - 1; RulesGrid.ScrollIntoView(RulesGrid.SelectedItem);
         TargetBox.Text = ""; PortBox.Text = "*"; ActionBox.SelectedIndex = (int)RuleAction.Proxy;
     }
@@ -473,6 +494,8 @@ public partial class MainWindow : Window
         {
             if (cleanupGuard is not null)
                 try { await cleanupGuard; } catch (Exception ex) { QueueLog($"정리 도우미를 사용할 수 없습니다: {ex.GetType().Name}."); }
+            // 진행 중인 설정 저장이 끝난 뒤에 창을 닫는다(실패 안내는 ChangeAsync가 이미 처리).
+            if (pendingSave is { } save) try { await save; } catch (Exception) { }
             await UnloadDriverAsync(); timer.Stop();
             // Idle cleanup can finish synchronously. Let the cancelled Closing
             // event unwind before requesting another close from the dispatcher.

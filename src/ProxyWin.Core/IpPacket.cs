@@ -81,8 +81,10 @@ public readonly record struct IpPacket(int Length, int TransportOffset, int Payl
     public void Rewrite(Span<byte> bytes, IPAddress source, int sourcePort, IPAddress destination, int destinationPort)
     {
         var ipv4 = (bytes[0] >> 4) == 4;
-        source.GetAddressBytes().CopyTo(bytes[(ipv4 ? 12 : 8)..]);
-        destination.GetAddressBytes().CopyTo(bytes[(ipv4 ? 16 : 24)..]);
+        // 패킷마다 byte[]를 만들지 않도록 주소를 패킷 버퍼에 직접 쓴다.
+        if (!source.TryWriteBytes(bytes[(ipv4 ? 12 : 8)..], out var sourceLength) || sourceLength != (ipv4 ? 4 : 16)
+            || !destination.TryWriteBytes(bytes[(ipv4 ? 16 : 24)..], out var destinationLength) || destinationLength != (ipv4 ? 4 : 16))
+            throw new ArgumentException("Address family differs from the packet.");
         BinaryPrimitives.WriteUInt16BigEndian(bytes[TransportOffset..], (ushort)sourcePort);
         BinaryPrimitives.WriteUInt16BigEndian(bytes[(TransportOffset + 2)..], (ushort)destinationPort);
     }
