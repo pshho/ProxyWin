@@ -1,79 +1,173 @@
 <Window x:Class="ProxyWin.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="ProxyWin" Width="1060" Height="780" MinWidth="920" MinHeight="680" WindowStartupLocation="CenterScreen" Closing="OnClosing" Style="{StaticResource {x:Type Window}}">
+        Title="ProxyWin" Width="1120" Height="840" MinWidth="980" MinHeight="720" WindowStartupLocation="CenterScreen" Closing="OnClosing" Style="{StaticResource {x:Type Window}}">
   <Grid Margin="14">
-    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="1.25*" MinHeight="100" /><RowDefinition Height="7" /><RowDefinition Height="*" MinHeight="185" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="1.25*" MinHeight="170" /><RowDefinition Height="7" /><RowDefinition Height="*" MinHeight="170" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+
+    <!-- 헤더: 제목 / 업데이트 / ③ 적용 -->
     <DockPanel Margin="0,0,0,10">
-      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+        <Border Style="{StaticResource StepBadge}"><TextBlock Text="3" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
         <Border x:Name="StatusBadge" CornerRadius="12" Padding="10,4" BorderThickness="1" VerticalAlignment="Center" Margin="0,0,10,0">
           <Border.Style><Style TargetType="Border">
-            <Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Background" Value="#EEF2F7" /><Setter Property="BorderBrush" Value="#DCE3ED" />
             <Setter Property="TextElement.Foreground" Value="{StaticResource Muted}" /><Setter Property="TextElement.FontWeight" Value="Normal" />
             <Style.Triggers>
-              <DataTrigger Binding="{Binding Text, ElementName=StatusText}" Value="● Active">
+              <DataTrigger Binding="{Binding Text, ElementName=StatusText}" Value="● 적용 중">
                 <Setter Property="Background" Value="#DCFCE7" /><Setter Property="BorderBrush" Value="#86EFAC" />
                 <Setter Property="TextElement.Foreground" Value="#166534" /><Setter Property="TextElement.FontWeight" Value="Bold" />
               </DataTrigger>
             </Style.Triggers>
           </Style></Border.Style>
-          <TextBlock x:Name="StatusText" Text="● Stopped" VerticalAlignment="Center" />
+          <TextBlock x:Name="StatusText" Text="● 중지됨" VerticalAlignment="Center" />
         </Border>
-        <Button x:Name="ToggleButton" Content="▶ Apply" Style="{StaticResource Primary}" Click="ToggleEngine" MinWidth="110" />
+        <Button x:Name="ToggleButton" Content="▶ 규칙 적용" Style="{StaticResource Primary}" Click="ToggleEngine" MinWidth="128" Padding="12,7" />
       </StackPanel>
-      <StackPanel Orientation="Horizontal"><Image Source="/Assets/ProxyWin.png" Width="24" Height="24" Margin="0,0,7,0" /><TextBlock Text="ProxyWin" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" /><Button x:Name="UpdateButton" Content="Check for updates" Click="CheckUpdates" Margin="16,0,0,0" Padding="8,3" ToolTip="Check GitHub for a new release." /></StackPanel>
+      <StackPanel>
+        <StackPanel Orientation="Horizontal">
+          <Image Source="/Assets/ProxyWin.png" Width="24" Height="24" Margin="0,0,7,0" />
+          <TextBlock Text="ProxyWin" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" />
+        </StackPanel>
+        <TextBlock Text="선택한 IP·프로그램의 트래픽을 SOCKS5 / HTTP(Burp 등) 프록시로 보냅니다 — ① 서버 등록 → ② 규칙 추가 → ③ 규칙 적용" Style="{StaticResource Note}" Margin="31,2,0,0" />
+      </StackPanel>
     </DockPanel>
-    <Border Grid.Row="1" x:Name="EditorPanel" Style="{StaticResource Card}" Padding="10,6" Margin="0,0,0,7">
-      <Border.Resources>
-        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}"><Setter Property="Padding" Value="6,2" /><Setter Property="MinHeight" Value="26" /></Style>
-        <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}"><Setter Property="Padding" Value="6,2" /><Setter Property="MinHeight" Value="26" /></Style>
-        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Padding" Value="8,3" /><Setter Property="MinHeight" Value="26" /></Style>
-      </Border.Resources>
-      <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-        <DockPanel Margin="0,0,0,4">
-          <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" Margin="8,0,0,0"><Button Content="+ Server" Click="AddProxy" Margin="0,0,4,0" /><Button Content="Edit" Click="EditProxy" Margin="0,0,4,0" /><Button Content="Remove" Click="DeleteProxy" /></StackPanel>
-          <TextBlock Text="Proxy server" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
-          <ComboBox x:Name="ProxyBox" DisplayMemberPath="Summary" SelectedValuePath="Id" SelectionChanged="SelectionChanged" ToolTip="Server used by PROXY rules." />
-        </DockPanel>
-        <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="140" /><ColumnDefinition Width="100" /><ColumnDefinition Width="95" /><ColumnDefinition Width="185" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-          <StackPanel Orientation="Horizontal" Margin="0,0,0,2"><TextBlock Text="Destinations" FontSize="11" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Destination help" ToolTip="Separate IPs, CIDRs or domains with commas. Domains become their current IPv4/IPv6 addresses when saved; they do not refresh automatically. Re-enter the domain to refresh. Use * alone for all non-loopback destinations." /></StackPanel>
-          <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,2"><TextBlock Text="Ports" FontSize="11" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Port help" ToolTip="Separate ports or ranges with commas: 80, 443, 8000-9000. Each listed destination uses this port list. Use * alone for all ports." /></StackPanel>
-          <TextBlock Grid.Column="2" Text="Protocol" FontSize="11" Margin="0,0,0,2" VerticalAlignment="Center" />
-          <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="0,0,0,2"><TextBlock Text="Action" FontSize="11" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Action help" ToolTip="First match wins. DIRECT passes traffic, PROXY uses the selected server, BLOCK drops packets. PROXY affects new TCP connections. HTTP proxies support TCP only." /></StackPanel>
-          <StackPanel Grid.Column="4" Orientation="Horizontal" Margin="0,0,0,2"><TextBlock Text="Process" FontSize="11" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Process help" ToolTip="Search, then select an exact executable name. Blank means all processes. Names apply to all instances, not a single PID. Destination * and port * cover that process's non-loopback traffic. Broad rules inspect more connections." /></StackPanel>
-          <TextBox Grid.Row="1" x:Name="TargetBox" Margin="0,0,6,0" MaxLength="8192" ToolTip="IPs / CIDRs / domains, or * alone. Example: example.com, 203.0.113.10. Domains are converted to IPs on save." />
-          <TextBox Grid.Row="1" Grid.Column="1" x:Name="PortBox" Text="*" Margin="0,0,6,0" MaxLength="4096" ToolTip="Comma-separated ports / ranges, or * alone. Example: 80, 443, 8000-9000" />
-          <ComboBox Grid.Row="1" Grid.Column="2" x:Name="ProtocolBox" SelectedIndex="0" Margin="0,0,6,0"><ComboBoxItem Content="TCP" /><ComboBoxItem Content="UDP" /><ComboBoxItem Content="TCP + UDP" /></ComboBox>
-          <ComboBox Grid.Row="1" Grid.Column="3" x:Name="ActionBox" SelectedIndex="1" SelectionChanged="ActionChanged" Margin="0,0,6,0"><ComboBoxItem Content="DIRECT" /><ComboBoxItem Content="PROXY" /><ComboBoxItem Content="BLOCK" /></ComboBox>
-          <ComboBox Grid.Row="1" Grid.Column="4" x:Name="ProcessBox" IsEditable="True" IsTextSearchEnabled="False" StaysOpenOnEdit="True" MaxDropDownHeight="260" DropDownOpened="OpenProcessPicker" Margin="0,0,6,0" ToolTip="Search by name, then select an executable. Blank = all processes." />
-          <Button Grid.Row="1" Grid.Column="5" Content="+ Rule" Style="{StaticResource Primary}" Padding="8,3" MinHeight="26" Click="AddTarget" />
-        </Grid>
-      </Grid>
-    </Border>
-    <Border Grid.Row="2" x:Name="RulePanel" Style="{StaticResource Card}" Padding="0"><Grid>
-      <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition /></Grid.RowDefinitions>
-      <DockPanel Margin="10,5"><TextBlock x:Name="RuleCount" Text="Rules 0" FontWeight="SemiBold" VerticalAlignment="Center" /><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="↑" Click="MoveRuleUp" Padding="8,3" Margin="0,0,4,0" ToolTip="Move up" /><Button Content="↓" Click="MoveRuleDown" Padding="8,3" Margin="0,0,9,0" ToolTip="Move down" /><Button Content="Edit" Click="EditRule" Padding="9,3" Margin="0,0,4,0" /><Button Content="Remove" Click="DeleteRule" Padding="9,3" /></StackPanel></DockPanel>
-      <DataGrid x:Name="RulesGrid" Grid.Row="1" MouseDoubleClick="EditRule"><DataGrid.Columns>
-        <DataGridTemplateColumn Header="On" Width="44"><DataGridTemplateColumn.CellTemplate><DataTemplate><CheckBox IsChecked="{Binding Enabled, Mode=OneWay}" Click="ToggleRule" VerticalAlignment="Center" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-        <DataGridTextColumn Header="Action" Binding="{Binding ActionLabel}" Width="72" /><DataGridTextColumn Header="Destination" Binding="{Binding Destinations}" Width="2*" /><DataGridTextColumn Header="Port" Binding="{Binding Ports}" Width="*" /><DataGridTextColumn Header="Protocol" Binding="{Binding NetworkLabel}" Width="90" /><DataGridTextColumn Header="Proxy" Binding="{Binding TargetName}" Width="*" /><DataGridTextColumn Header="Process" Binding="{Binding ProcessLabel}" Width="*" />
-      </DataGrid.Columns></DataGrid>
-      <TextBlock x:Name="RuleEmpty" Grid.Row="1" Text="Add a rule above, or select a connection below." TextAlignment="Center" Foreground="{StaticResource Muted}" VerticalAlignment="Center" HorizontalAlignment="Center" IsHitTestVisible="False" />
-    </Grid></Border>
-    <GridSplitter Grid.Row="3" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" Background="#DFE6F0" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" />
-    <Border Grid.Row="4" Style="{StaticResource Card}" Padding="0"><Grid>
-      <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition /></Grid.RowDefinitions>
-      <DockPanel Margin="10,8,10,4">
-        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button x:Name="ObserveButton" Content="Monitor" Click="ToggleObservation" Margin="0,0,4,0" /><Button Content="Clear" Click="ClearObservations" /></StackPanel>
-        <TextBlock Text="Connections" FontWeight="Bold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" Margin="5,0,9,0" AutomationProperties.Name="Monitor help" ToolTip="Only new outbound TCP/UDP flows appear after monitoring starts. Existing flows and failed TCP attempts may be absent. No packet contents are recorded. The newest 1,000 rows stay in memory. The search box filters displayed rows only; it does not limit capture." />
-        <Grid Width="175" HorizontalAlignment="Left"><TextBox x:Name="ObservationFilter" TextChanged="FilterObservations" ToolTip="Search displayed connections by process, PID, IP, port or protocol. This does not limit capture or change routing rules." /><TextBlock Text="Filter: process / IP / port" FontSize="10" Foreground="{StaticResource Muted}" Margin="7,0" VerticalAlignment="Center" IsHitTestVisible="False"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=ObservationFilter}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></Grid>
-        <CheckBox x:Name="OnlyObservedProgram" Content="This process" IsChecked="True" Checked="ObservationScopeChanged" Unchecked="ObservationScopeChanged" VerticalAlignment="Center" Margin="12,0" ToolTip="Restrict the rule added from this row to its executable name, not PID. Does not change monitoring." />
-        <Button x:Name="AddObservedButton" Content="Add rule" Click="AddObservedRule" IsEnabled="False" HorizontalAlignment="Left" />
+
+    <!-- 관리자 권한 안내 -->
+    <Border Grid.Row="1" x:Name="AdminBanner" Visibility="Collapsed" Background="{StaticResource WarnBack}" BorderBrush="{StaticResource WarnLine}" BorderThickness="1" CornerRadius="7" Padding="12,7" Margin="0,0,0,8">
+      <DockPanel>
+        <Button DockPanel.Dock="Right" Content="관리자 권한으로 다시 실행" Click="RestartAsAdmin" Margin="10,0,0,0" ToolTip="Windows 사용자 계정 컨트롤(UAC) 확인 후 ProxyWin을 관리자 권한으로 다시 엽니다. 저장된 서버·규칙은 그대로 유지됩니다." />
+        <TextBlock Foreground="{StaticResource WarnInk}" TextWrapping="Wrap" VerticalAlignment="Center">
+          <Run FontWeight="Bold" Text="⚠ 관리자 권한이 아닙니다." />
+          <Run Text="규칙 적용(③)과 연결 모니터는 관리자 권한이 있어야 동작합니다. 서버·규칙 편집은 지금도 할 수 있습니다." />
+        </TextBlock>
       </DockPanel>
-      <DockPanel Grid.Row="1" Margin="10,0,10,7"><TextBlock Text="New connections only · No packet contents" FontSize="10" Foreground="{StaticResource Muted}" /><TextBlock x:Name="ObserveStatus" Text="Stopped · 0 / 1000 rows" HorizontalAlignment="Right" FontSize="10" Foreground="{StaticResource Muted}" /></DockPanel>
-      <DataGrid Grid.Row="2" x:Name="ObservationGrid" SelectionChanged="SelectionChanged" CanUserSortColumns="True"><DataGrid.Columns>
-        <DataGridTextColumn Header="Time" Binding="{Binding TimeLabel}" SortMemberPath="Time" Width="90" /><DataGridTextColumn Header="Process" Binding="{Binding ProcessLabel}" Width="150" /><DataGridTextColumn Header="PID" Binding="{Binding ProcessId}" Width="58" /><DataGridTextColumn Header="Type" Binding="{Binding NetworkLabel}" Width="48" /><DataGridTextColumn Header="Destination" Binding="{Binding Destination}" Width="*" /><DataGridTextColumn Header="Port" Binding="{Binding RemotePort}" Width="58" /><DataGridTextColumn Header="Source" Binding="{Binding LocalEndpoint}" Width="*" /><DataGridTextColumn Header="Scope" Binding="{Binding ScopeLabel}" Width="64" />
-      </DataGrid.Columns></DataGrid>
+    </Border>
+
+    <!-- ① 프록시 서버 + ② 규칙 추가 -->
+    <Border Grid.Row="2" x:Name="EditorPanel" Style="{StaticResource Card}" Padding="12,10" Margin="0,0,0,8">
+      <Border.Resources>
+        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}"><Setter Property="Padding" Value="6,2" /><Setter Property="MinHeight" Value="28" /></Style>
+        <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}"><Setter Property="Padding" Value="6,2" /><Setter Property="MinHeight" Value="28" /></Style>
+        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Padding" Value="9,3" /><Setter Property="MinHeight" Value="28" /></Style>
+      </Border.Resources>
+      <StackPanel>
+        <DockPanel>
+          <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" Margin="8,0,0,0">
+            <Button x:Name="AddProxyButton" Content="+ 서버 추가" Click="AddProxy" Margin="0,0,4,0" Padding="9,3" MinHeight="28" ToolTip="새 프록시 서버를 등록합니다. Burp Suite / 로컬 SOCKS5는 '빠른 설정' 버튼으로 바로 채울 수 있습니다." />
+            <Button x:Name="EditProxyButton" Content="수정" Click="EditProxy" Margin="0,0,4,0" ToolTip="선택한 서버의 주소·포트·인증 정보를 수정합니다." />
+            <Button x:Name="DeleteProxyButton" Content="삭제" Click="DeleteProxy" ToolTip="선택한 서버를 삭제합니다. 이 서버를 쓰는 규칙이 있으면 먼저 정리해야 합니다." />
+          </StackPanel>
+          <Border Style="{StaticResource StepBadge}"><TextBlock Text="1" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+          <TextBlock Text="프록시 서버" Style="{StaticResource StepTitle}" />
+          <Button Style="{StaticResource Help}" AutomationProperties.Name="프록시 서버 도움말" ToolTip="PROXY 규칙이 트래픽을 보낼 서버입니다. 여기서 고른 서버가 ② 규칙 추가와 연결 모니터의 [선택한 연결로 규칙 추가]에 쓰입니다.&#x0a;&#x0a;• Burp Suite: 종류 HTTP, 호스트 127.0.0.1, 포트 8080 (Burp의 Proxy listener 주소)&#x0a;• SOCKS5: TCP와 UDP 모두 가능&#x0a;• HTTP 프록시: TCP만 가능" />
+          <Grid Margin="12,0,0,0">
+            <ComboBox x:Name="ProxyBox" DisplayMemberPath="Summary" SelectedValuePath="Id" SelectionChanged="SelectionChanged" ToolTip="PROXY 규칙이 사용할 서버" />
+            <TextBlock Text="등록된 서버가 없습니다 → 오른쪽 [+ 서버 추가]를 누르세요 (Burp는 '빠른 설정 → Burp Suite')" Foreground="{StaticResource Hint}" Margin="9,0,30,0" VerticalAlignment="Center" IsHitTestVisible="False" TextTrimming="CharacterEllipsis">
+              <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding HasItems, ElementName=ProxyBox}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+            </TextBlock>
+          </Grid>
+        </DockPanel>
+        <Border Height="1" Background="#EDF1F7" Margin="0,10" />
+        <DockPanel Margin="0,0,0,6">
+          <TextBlock DockPanel.Dock="Right" Text="모든 조건이 맞을 때만 적용 · 목록 위쪽 규칙이 우선" Style="{StaticResource Note}" VerticalAlignment="Center" />
+          <Border Style="{StaticResource StepBadge}"><TextBlock Text="2" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+          <TextBlock Text="규칙 추가" Style="{StaticResource StepTitle}" />
+          <TextBlock Text="어떤 트래픽(대상·포트·프로그램)을 어떻게(동작) 보낼지 정합니다" Style="{StaticResource Note}" Margin="10,0,0,0" VerticalAlignment="Center" />
+        </DockPanel>
+        <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition MinWidth="180" /><ColumnDefinition Width="130" /><ColumnDefinition Width="96" /><ColumnDefinition Width="150" /><ColumnDefinition Width="185" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,3"><TextBlock Text="대상 (IP · 도메인 · CIDR)" Style="{StaticResource FieldLabel}" /><Button Style="{StaticResource Help}" AutomationProperties.Name="대상 도움말" ToolTip="어디로 가는 트래픽인지 입력합니다. 여러 개는 쉼표로 구분합니다.&#x0a;&#x0a;• IP: 203.0.113.10&#x0a;• 대역(CIDR): 10.0.0.0/8, 2001:db8::/32&#x0a;• 도메인: api.example.com (http://, 경로, 포트는 빼고 입력)&#x0a;• 모든 대상: * 하나만 입력&#x0a;&#x0a;도메인은 추가하는 순간의 IP로 바뀌어 저장되며 자동 갱신되지 않습니다(다시 입력하면 갱신). 192.168.*.* 같은 부분 와일드카드 대신 CIDR(192.168.0.0/16)을 쓰세요." /></StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,3"><TextBlock Text="포트" Style="{StaticResource FieldLabel}" /><Button Style="{StaticResource Help}" AutomationProperties.Name="포트 도움말" ToolTip="목적지 포트입니다. 숫자나 범위를 쉼표로 구분합니다.&#x0a;예: 443 / 80, 443 / 8000-9000&#x0a;모든 포트는 * 하나만 입력합니다.&#x0a;&#x0a;대상 목록과 포트 목록은 모든 조합으로 적용됩니다(순서대로 1:1 짝지어지지 않음). 특정 IP-포트 짝만 원하면 규칙을 나눠 만드세요." /></StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,0,3"><TextBlock Text="프로토콜" Style="{StaticResource FieldLabel}" /><Button Style="{StaticResource Help}" AutomationProperties.Name="프로토콜 도움말" ToolTip="웹·대부분의 앱은 TCP입니다. 잘 모르겠으면 TCP를 고르세요.&#x0a;UDP(게임·QUIC·DNS 등)는 SOCKS5 서버로만 보낼 수 있고, Burp 같은 HTTP 프록시는 TCP만 지원합니다." /></StackPanel>
+          <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="0,0,0,3"><TextBlock Text="동작" Style="{StaticResource FieldLabel}" /><Button Style="{StaticResource Help}" AutomationProperties.Name="동작 도움말" ToolTip="조건에 맞는 트래픽을 어떻게 할지 정합니다.&#x0a;&#x0a;• PROXY: ①에서 고른 서버로 보냅니다&#x0a;• DIRECT: 프록시 없이 그대로 보냅니다(넓은 PROXY 규칙의 예외용 — 목록 위에 두세요)&#x0a;• BLOCK: 차단합니다(앱에는 시간 초과처럼 보임)&#x0a;&#x0a;PROXY는 규칙 적용 후 새로 맺는 연결부터 효과가 있습니다. 이미 열린 연결은 앱을 다시 접속시키세요." /></StackPanel>
+          <StackPanel Grid.Column="4" Orientation="Horizontal" Margin="0,0,0,3"><TextBlock Text="프로그램 (선택)" Style="{StaticResource FieldLabel}" /><Button Style="{StaticResource Help}" AutomationProperties.Name="프로그램 도움말" ToolTip="특정 프로그램의 트래픽만 고르려면 실행 파일 이름을 입력하거나 목록에서 고르세요(일부만 입력하면 검색). 비우면 모든 프로그램이 대상입니다.&#x0a;&#x0a;예: chrome.exe, msedge.exe, java.exe&#x0a;같은 이름의 모든 프로세스에 적용됩니다(PID 단위 아님).&#x0a;대상 *, 포트 *와 함께 쓰면 그 프로그램의 외부 트래픽 전체가 대상이 됩니다." /></StackPanel>
+          <TextBox Grid.Row="1" x:Name="TargetBox" Margin="0,0,6,0" MaxLength="8192" Tag="예: 203.0.113.10, api.example.com · 모든 대상은 *" />
+          <TextBox Grid.Row="1" Grid.Column="1" x:Name="PortBox" Text="*" Margin="0,0,6,0" MaxLength="4096" Tag="예: 443 · 모든 포트 *" />
+          <ComboBox Grid.Row="1" Grid.Column="2" x:Name="ProtocolBox" SelectedIndex="0" Margin="0,0,6,0"><ComboBoxItem Content="TCP" /><ComboBoxItem Content="UDP" /><ComboBoxItem Content="TCP + UDP" /></ComboBox>
+          <ComboBox Grid.Row="1" Grid.Column="3" x:Name="ActionBox" SelectedIndex="1" SelectionChanged="ActionChanged" Margin="0,0,6,0"><ComboBoxItem Content="DIRECT · 그대로" /><ComboBoxItem Content="PROXY · 프록시로" /><ComboBoxItem Content="BLOCK · 차단" /></ComboBox>
+          <Grid Grid.Row="1" Grid.Column="4" Margin="0,0,6,0">
+            <ComboBox x:Name="ProcessBox" IsEditable="True" IsTextSearchEnabled="False" StaysOpenOnEdit="True" MaxDropDownHeight="260" DropDownOpened="OpenProcessPicker" ToolTip="이름 일부를 입력하면 실행 중인 프로그램에서 찾습니다. 비우면 모든 프로그램." />
+            <TextBlock Text="비우면 모든 프로그램" Foreground="{StaticResource Hint}" Margin="9,0,26,0" VerticalAlignment="Center" IsHitTestVisible="False" TextTrimming="CharacterEllipsis">
+              <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=ProcessBox}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+            </TextBlock>
+          </Grid>
+          <Button Grid.Row="1" Grid.Column="5" x:Name="AddRuleButton" Content="+ 규칙 추가" Style="{StaticResource Primary}" Padding="12,3" MinHeight="28" Click="AddTarget" />
+        </Grid>
+        <TextBlock x:Name="RuleHint" Style="{StaticResource Note}" Margin="0,7,0,0" />
+      </StackPanel>
+    </Border>
+
+    <!-- 규칙 목록 -->
+    <Border Grid.Row="3" x:Name="RulePanel" Style="{StaticResource Card}" Padding="0"><Grid>
+      <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition /></Grid.RowDefinitions>
+      <DockPanel Margin="12,7">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <Button Content="↑ 위로" Click="MoveRuleUp" Padding="8,3" Margin="0,0,4,0" ToolTip="선택한 규칙의 우선순위를 올립니다." />
+          <Button Content="↓ 아래로" Click="MoveRuleDown" Padding="8,3" Margin="0,0,10,0" ToolTip="선택한 규칙의 우선순위를 내립니다." />
+          <Button Content="수정" Click="EditRule" Padding="10,3" Margin="0,0,4,0" ToolTip="선택한 규칙을 수정합니다(행 더블클릭과 같음)." />
+          <Button Content="삭제" Click="DeleteRule" Padding="10,3" ToolTip="선택한 규칙을 삭제합니다." />
+        </StackPanel>
+        <TextBlock x:Name="RuleCount" Text="규칙 목록" Style="{StaticResource StepTitle}" />
+        <TextBlock Text="위에서부터 처음 맞는 규칙 하나만 적용 · 체크를 끄면 사용 안 함 · 더블클릭하면 수정" Style="{StaticResource Note}" Margin="10,0,0,0" VerticalAlignment="Center" />
+      </DockPanel>
+      <DataGrid x:Name="RulesGrid" Grid.Row="1" MouseDoubleClick="EditRule">
+        <DataGrid.RowStyle><Style TargetType="DataGridRow"><Style.Triggers><DataTrigger Binding="{Binding Enabled}" Value="False"><Setter Property="Foreground" Value="{StaticResource Hint}" /></DataTrigger></Style.Triggers></Style></DataGrid.RowStyle>
+        <DataGrid.Columns>
+          <DataGridTemplateColumn Header="사용" Width="44"><DataGridTemplateColumn.CellTemplate><DataTemplate><CheckBox IsChecked="{Binding Enabled, Mode=OneWay}" Click="ToggleRule" VerticalAlignment="Center" ToolTip="체크를 끄면 이 규칙을 사용하지 않습니다." /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+          <DataGridTemplateColumn Header="동작" Width="78"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+            <TextBlock Text="{Binding ActionLabel}" FontWeight="SemiBold">
+              <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers>
+                <DataTrigger Binding="{Binding ActionLabel}" Value="PROXY"><Setter Property="Foreground" Value="#2862E9" /></DataTrigger>
+                <DataTrigger Binding="{Binding ActionLabel}" Value="DIRECT"><Setter Property="Foreground" Value="#15803D" /></DataTrigger>
+                <DataTrigger Binding="{Binding ActionLabel}" Value="BLOCK"><Setter Property="Foreground" Value="#C2410C" /></DataTrigger>
+                <DataTrigger Binding="{Binding Enabled}" Value="False"><Setter Property="Foreground" Value="{StaticResource Hint}" /></DataTrigger>
+              </Style.Triggers></Style></TextBlock.Style>
+            </TextBlock>
+          </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+          <DataGridTextColumn Header="대상" Binding="{Binding Destinations}" Width="2*" /><DataGridTextColumn Header="포트" Binding="{Binding Ports}" Width="*" /><DataGridTextColumn Header="프로토콜" Binding="{Binding NetworkLabel}" Width="90" /><DataGridTextColumn Header="프록시 서버" Binding="{Binding TargetName}" Width="*" /><DataGridTextColumn Header="프로그램" Binding="{Binding ProcessLabel}" Width="*" />
+        </DataGrid.Columns>
+      </DataGrid>
+      <!-- 규칙이 없을 때 보이는 시작 가이드 -->
+      <ScrollViewer x:Name="RuleEmpty" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <Border HorizontalAlignment="Center" VerticalAlignment="Center" Background="{StaticResource AccentSoft}" CornerRadius="8" Padding="18,12" Margin="12,4,12,12">
+        <StackPanel>
+          <TextBlock Text="처음이라면 이렇게 시작하세요" FontWeight="Bold" FontSize="13" Margin="0,0,0,6" />
+          <TextBlock TextWrapping="Wrap" Margin="0,2"><Run x:Name="GuideServerTitle" FontWeight="SemiBold" Text="① 프록시 서버" /><Run Text="  [+ 서버 추가] → '빠른 설정'에서 Burp Suite 또는 SOCKS5를 고르고 저장" /></TextBlock>
+          <TextBlock TextWrapping="Wrap" Margin="0,2"><Run FontWeight="SemiBold" Text="② 규칙 추가" /><Run Text="  대상·포트·프로그램을 입력하고 [+ 규칙 추가]" /></TextBlock>
+          <TextBlock Style="{StaticResource Note}" Margin="18,1,0,1" Text="예) 특정 프로그램 전체 → 대상 *  ·  포트 *  ·  프로그램 chrome.exe" />
+          <TextBlock Style="{StaticResource Note}" Margin="18,1,0,2" Text="예) 특정 사이트만 → 대상 api.example.com  ·  포트 443" />
+          <TextBlock TextWrapping="Wrap" Margin="0,2"><Run FontWeight="SemiBold" Text="③ 규칙 적용" /><Run Text="  오른쪽 위 [▶ 규칙 적용] → 그 뒤 대상 프로그램에서 새로 접속하면 프록시를 거칩니다" /></TextBlock>
+          <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
+            <TextBlock Text="예시 채우기:" Style="{StaticResource Note}" VerticalAlignment="Center" Margin="0,0,6,0" />
+            <Button Content="프로그램 전체를 프록시로" Click="FillProgramExample" Padding="8,3" Margin="0,0,5,0" ToolTip="② 입력칸을 대상 *, 포트 *, 동작 PROXY로 채웁니다. 프로그램 이름만 고르면 됩니다." />
+            <Button Content="특정 사이트만 프록시로" Click="FillSiteExample" Padding="8,3" ToolTip="② 입력칸을 도메인 예시와 포트 443으로 채웁니다. 실제 도메인으로 바꿔 입력하세요." />
+          </StackPanel>
+          <TextBlock Style="{StaticResource Note}" Margin="0,8,0,0" Text="또는 아래 '연결 모니터'에서 실제 연결을 보고 골라 규칙을 만들 수도 있습니다." />
+        </StackPanel>
+      </Border>
+      </ScrollViewer>
     </Grid></Border>
-    <Expander x:Name="EventsPanel" Grid.Row="5" Header="Events" Margin="0,7,0,0"><DockPanel Margin="0,5,0,0"><Button Content="Clear" Click="ClearLogs" DockPanel.Dock="Right" VerticalAlignment="Top" Margin="7,0,0,0" /><ListBox x:Name="LogList" Height="80" FontFamily="Consolas, Malgun Gothic" FontSize="11" BorderBrush="#DFE5EF" VirtualizingPanel.IsVirtualizing="True" /></DockPanel></Expander>
-    <DockPanel Grid.Row="6" Margin="0,8,0,0"><TextBlock x:Name="FooterText" Foreground="{StaticResource Muted}" FontSize="10" /><TextBlock x:Name="StatsText" Text="TCP 0 · UDP 0" HorizontalAlignment="Right" Foreground="{StaticResource Muted}" FontSize="10" /></DockPanel>
+    <GridSplitter Grid.Row="4" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" Background="#DFE6F0" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" />
+
+    <!-- 연결 모니터 -->
+    <Border Grid.Row="5" Style="{StaticResource Card}" Padding="0"><Grid>
+      <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition /></Grid.RowDefinitions>
+      <DockPanel Margin="12,8,12,4">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button x:Name="ObserveButton" Content="▶ 모니터 시작" Click="ToggleObservation" Margin="0,0,4,0" /><Button Content="지우기" Click="ClearObservations" ToolTip="표시된 연결 목록을 비웁니다." /></StackPanel>
+        <TextBlock Text="연결 모니터" Style="{StaticResource StepTitle}" />
+        <Button Style="{StaticResource Help}" Margin="5,0,10,0" AutomationProperties.Name="연결 모니터 도움말" ToolTip="어떤 프로그램이 어디로 접속하는지 보고, 그 연결로 규칙을 만들 때 씁니다.&#x0a;&#x0a;1. [▶ 모니터 시작] (관리자 권한 필요)&#x0a;2. 대상 프로그램에서 새로 접속&#x0a;3. 목록에서 행 선택 → 위 ②에서 동작(PROXY 등)과 ①의 서버를 고른 상태로 [선택한 연결로 규칙 추가]&#x0a;&#x0a;모니터 시작 후 새로 생긴 외부 TCP/UDP 연결만 보입니다. 패킷 내용은 기록하지 않으며 최근 1,000행만 메모리에 둡니다. 필터는 화면 표시만 거릅니다." />
+        <TextBox x:Name="ObservationFilter" Width="190" TextChanged="FilterObservations" Tag="필터: 프로그램 / IP / 포트" ToolTip="표시된 연결을 프로그램·PID·IP·포트·프로토콜로 찾습니다. 수집 범위나 규칙은 바뀌지 않습니다." />
+        <CheckBox x:Name="OnlyObservedProgram" Content="이 프로그램만" IsChecked="True" Checked="ObservationScopeChanged" Unchecked="ObservationScopeChanged" VerticalAlignment="Center" Margin="12,0" ToolTip="켜면 만들어지는 규칙이 선택한 행의 프로그램(실행 파일 이름)에만 적용됩니다. 끄면 모든 프로그램에 적용됩니다." />
+        <Button x:Name="AddObservedButton" Content="선택한 연결로 규칙 추가" Click="AddObservedRule" IsEnabled="False" HorizontalAlignment="Left" />
+      </DockPanel>
+      <DockPanel Grid.Row="1" Margin="12,0,12,6"><TextBlock Text="모니터 시작 후 새로 생긴 연결만 표시 · 패킷 내용은 기록하지 않음 · 규칙의 동작/서버는 위 ②·①에서 고른 값을 사용" Style="{StaticResource Note}" FontSize="10" /><TextBlock x:Name="ObserveStatus" Text="중지됨 · 0 / 1000행" HorizontalAlignment="Right" FontSize="10" Foreground="{StaticResource Muted}" /></DockPanel>
+      <DataGrid Grid.Row="2" x:Name="ObservationGrid" SelectionChanged="SelectionChanged" CanUserSortColumns="True"><DataGrid.Columns>
+        <DataGridTextColumn Header="시간" Binding="{Binding TimeLabel}" SortMemberPath="Time" Width="90" /><DataGridTextColumn Header="프로그램" Binding="{Binding ProcessLabel}" Width="150" /><DataGridTextColumn Header="PID" Binding="{Binding ProcessId}" Width="58" /><DataGridTextColumn Header="유형" Binding="{Binding NetworkLabel}" Width="48" /><DataGridTextColumn Header="대상" Binding="{Binding Destination}" Width="*" /><DataGridTextColumn Header="포트" Binding="{Binding RemotePort}" Width="58" /><DataGridTextColumn Header="출발지" Binding="{Binding LocalEndpoint}" Width="*" /><DataGridTextColumn Header="범위" Binding="{Binding ScopeLabel}" Width="56" />
+      </DataGrid.Columns></DataGrid>
+      <TextBlock x:Name="ObservationEmpty" Grid.Row="2" Text="[▶ 모니터 시작]을 누른 뒤 대상 프로그램에서 접속하면 여기에 연결이 나타납니다." Foreground="{StaticResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" Margin="0,28,0,0" />
+    </Grid></Border>
+
+    <Expander x:Name="EventsPanel" Grid.Row="6" Header="이벤트 로그" Margin="0,7,0,0" ToolTip="적용/중지, 프록시 연결 오류 등 상태 메시지. 프록시가 동작하지 않으면 여기를 확인하세요."><DockPanel Margin="0,5,0,0"><Button Content="지우기" Click="ClearLogs" DockPanel.Dock="Right" VerticalAlignment="Top" Margin="7,0,0,0" /><ListBox x:Name="LogList" Height="90" FontFamily="Consolas, Malgun Gothic" FontSize="11" BorderBrush="#DFE5EF" VirtualizingPanel.IsVirtualizing="True" /></DockPanel></Expander>
+    <DockPanel Grid.Row="7" Margin="0,8,0,0"><TextBlock x:Name="FooterText" Foreground="{StaticResource Muted}" FontSize="10" /><TextBlock x:Name="StatsText" Text="TCP 0 · UDP 0" HorizontalAlignment="Right" Foreground="{StaticResource Muted}" FontSize="10" ToolTip="현재 중계 중인 TCP 연결 / UDP 세션 수, 누적 전송량, 차단·폐기·오류 횟수" /></DockPanel>
   </Grid>
 </Window>

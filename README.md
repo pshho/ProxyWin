@@ -6,7 +6,7 @@ ProxyWin uses WinDivert 2.2.2 to apply ordered **DIRECT**, **PROXY**, and **BLOC
 
 **[Download the latest release](https://github.com/pshho/ProxyWin/releases/latest)** — Windows x64 ZIP and SHA-256 checksum · [CI status](https://github.com/pshho/ProxyWin/actions/workflows/ci-release.yml)
 
-![ProxyWin English GUI with sample rules and connections](docs/images/main.png)
+![ProxyWin Korean GUI with sample rules and connections](docs/images/main.png)
 
 *The screenshot uses synthetic connection data.*
 
@@ -16,11 +16,10 @@ ProxyWin uses WinDivert 2.2.2 to apply ordered **DIRECT**, **PROXY**, and **BLOC
 - Ordered DIRECT / PROXY / BLOCK rules with destination, port, protocol and process conditions.
 - IPv4/IPv6 IPs, CIDR ranges and destination `*` for process-wide rules.
 - Domain destinations automatically resolved to IPv4/IPv6 addresses when adding or editing a rule.
-- Startup update notification with a link to the latest official release, plus manual checks.
 - TCP through SOCKS5 or HTTP CONNECT; UDP through SOCKS5 UDP ASSOCIATE.
 - Live new-connection metadata: executable name, PID, protocol and endpoints.
 - Create a rule from an observed connection or search running processes by name.
-- Compact English UI, round **!** help buttons and an application icon.
+- Korean step-by-step UI (**① 프록시 서버 → ② 규칙 추가 → ③ 규칙 적용**) with a getting-started guide, example placeholders in every input, per-action hints, Burp/SOCKS5 quick presets, round **?** help buttons and an administrator-restart banner.
 - Windows DPAPI-protected settings.
 
 ## Download and run
@@ -45,37 +44,31 @@ The [2026-10-03 availability report](docs/verification/2026-10-03-availability.m
 
 ## Quick start
 
-1. Use **+ Server** to add a SOCKS5 or HTTP proxy. DIRECT and BLOCK need no server.
-2. Enter **Destination**, **Port**, **Protocol**, **Action** and optionally **Process**, then click **+ Rule**. PROXY uses the selected server.
-3. Arrange rules with **↑ / ↓**. The first matching rule wins.
-4. Click **Apply**. Open a new connection in the target application for PROXY rules to take effect.
-5. Click **Stop** before editing rules. Monitoring can remain active.
+1. **① 프록시 서버** — click **+ 서버 추가**. The **빠른 설정** buttons fill Burp Suite (HTTP · `127.0.0.1:8080`) or a local SOCKS5 server (`127.0.0.1:1080`). DIRECT and BLOCK need no server.
+2. **② 규칙 추가** — enter **대상**, **포트**, **프로토콜**, **동작** and optionally **프로그램**, then click **+ 규칙 추가**. PROXY uses the server selected in ①. The line under the inputs explains what the selected action will do. With no rules, the list shows a getting-started guide with **예시 채우기** buttons.
+3. Arrange rules with **↑ 위로 / ↓ 아래로**. The first matching rule wins.
+4. **③** Click **▶ 규칙 적용** (administrator required). Open a new connection in the target application for PROXY rules to take effect.
+5. Click **■ 적용 중지** before editing rules. Monitoring can remain active.
 
-Hover over or click a round **!** for field help. Settings save automatically.
+Hover over or click a round **?** for field help. Settings save automatically. If ProxyWin is not elevated, a yellow banner offers **관리자 권한으로 다시 실행**; servers and rules can still be edited without elevation. Adding a rule identical to an existing one selects (and re-enables) the existing rule instead of duplicating it.
 
 | Field | Examples |
 | --- | --- |
-| Destination | `203.0.113.10`, `10.20.0.0/16`, `2001:db8::/32` |
+| 대상 (destination) | `203.0.113.10`, `10.20.0.0/16`, `2001:db8::/32` |
 | Multiple destinations | `203.0.113.10, 198.51.100.20` |
 | Domains, optionally mixed with IPs | `example.com, 203.0.113.10` |
 | All IPv4 and IPv6 destinations | `*` |
 | All IPv4 / all IPv6 | `0.0.0.0/0` / `::/0` |
-| Port | `443`, `443, 8000-9000`, or `*` |
-| Process | `chrome.exe`; blank means all processes |
+| 포트 (port) | `443`, `443, 8000-9000`, or `*` |
+| 프로그램 (process) | `chrome.exe`; blank means all processes |
 
 Documentation IPs above are examples. Replace them with your intended destinations. Partial IP patterns such as `192.168.*.*` are not supported; use CIDR for address ranges. Loopback/self traffic remains excluded.
 
-Domains are looked up through Windows DNS when you click **+ Rule** or **Save**. All supported IPv4/IPv6 answers are stored as numeric destinations, with duplicates removed. Internationalized domains are accepted. Lookup is asynchronous with a 10-second timeout; a failed lookup leaves the saved rules unchanged. Enter a hostname only, without a URL scheme, path or port.
+Domains are looked up through Windows DNS when you click **+ 규칙 추가** or **저장**. All supported IPv4/IPv6 answers are stored as numeric destinations, with duplicates removed. Internationalized domains are accepted. Lookup is asynchronous with a 10-second timeout; a failed lookup leaves the saved rules unchanged. Enter a hostname only, without a URL scheme, path or port.
 
 The saved addresses are a snapshot and do not refresh automatically. Re-enter the domain in the rule editor to refresh it. CDN addresses can change, and another domain sharing an IP will match the same IP rule. This is address-based routing, not HTTP Host/TLS SNI filtering.
 
 Destinations and ports both accept comma-separated lists, with optional spaces. For example, Destinations `203.0.113.10, 198.51.100.20` and Ports `80, 443, 8000-9000` create **one rule** matching either IP at any listed port/range. The lists are not paired by position. Use separate rules for specific IP-to-port pairs. Use `*` by itself, not mixed with list entries.
-
-### Update notifications
-
-ProxyWin checks the public GitHub latest-release endpoint once at startup without blocking the window. A newer stable version shows **Update x.y.z available** in the header; clicking it opens the official release page. If current, the button allows a manual check; if GitHub is unavailable or rate-limited, it offers **Retry**. Checks time out after 10 seconds and do not interrupt routing. Downloads and installation remain manual. No proxy credentials or rules are sent to GitHub.
-
-Update checks are intended to work while rules are Active. The application's own update TCP sockets are registered before connection and excluded from ProxyWin's PROXY/BLOCK decisions for their lifetime, including pooled connections across Apply/Stop. This does not exclude other programs' GitHub connections. Windows/system proxy settings and normal TLS certificate validation still apply. When a check fails, the button tooltip and Events identify DNS, TLS, system-proxy, timeout or HTTP-status errors instead of the old generic “Rules are unchanged” notice.
 
 ### Process-wide rule
 
@@ -83,14 +76,14 @@ To route Chrome's non-loopback TCP and UDP traffic through a SOCKS5 server:
 
 | Setting | Value |
 | --- | --- |
-| Destination | `*` |
-| Port | `*` |
-| Protocol | `TCP + UDP` |
-| Process | `chrome.exe` |
-| Action | `PROXY` |
-| Proxy server | Your SOCKS5 server |
+| 대상 | `*` |
+| 포트 | `*` |
+| 프로토콜 | `TCP + UDP` |
+| 프로그램 | `chrome.exe` |
+| 동작 | `PROXY · 프록시로` |
+| ① 프록시 서버 | Your SOCKS5 server |
 
-Select **TCP** for an HTTP/Burp proxy. Choose **DIRECT** or **BLOCK** for the corresponding process-wide action.
+Select **TCP** for an HTTP/Burp proxy. Choose **DIRECT** or **BLOCK** for the corresponding process-wide action. The guide button **프로그램 전체를 프록시로** fills `*` / `*` / PROXY and opens the running-program list.
 
 Process search accepts part of a name, but the rule matches the **full executable name**, case-insensitively. All instances with that name match; this is not a PID, executable-path or signature filter. You can type a currently inactive executable's name manually. All destination, port, protocol and process conditions must match.
 
@@ -108,17 +101,17 @@ BLOCK may appear as a timeout to the client. It does not undo data already recei
 
 ## Monitor connections and create rules
 
-1. Click **Start monitor** in **Connections**.
+1. Click **▶ 모니터 시작** in **연결 모니터** (administrator required).
 2. Make a new connection in the target application.
-3. Filter by process, PID, IP or port and select a row.
-4. Choose an action and, for PROXY, a server above.
-5. Click **Add rule**. **This process** restricts the rule to the observed executable name.
+3. Filter by program, PID, IP or port and select a row.
+4. Choose an action in ② and, for PROXY, a server in ①.
+5. Click **선택한 연결로 규칙 추가**. **이 프로그램만** restricts the rule to the observed executable name.
 
 The generated rule uses that connection's exact destination, port and protocol. To cover the process's other destinations, edit the rule and set Destination to `*`. Identical rules are selected instead of duplicated; disabled identical rules are re-enabled.
 
-Monitoring uses read-only WinDivert FLOW metadata. It records no packet contents, HTTP bodies or credentials. Only new flows appear; pre-existing connections and failed TCP attempts may be absent. The newest 1,000 rows remain in memory, with a bounded 2,048-entry queue. Overload can omit records. **Stop monitor** only stops observation.
+Monitoring uses read-only WinDivert FLOW metadata. It records no packet contents, HTTP bodies or credentials. Only new flows appear; pre-existing connections and failed TCP attempts may be absent. The newest 1,000 rows remain in memory, with a bounded 2,048-entry queue. Overload can omit records. **■ 모니터 중지** only stops observation.
 
-The **Filter: process / IP / port** box searches the displayed connection rows using a single text term (also matching PID or protocol). It does not restrict which flows the monitor collects, and it does not change routing rules. **This process** affects the rule created from a selected row, not the monitoring scope.
+The **필터: 프로그램 / IP / 포트** box searches the displayed connection rows using a single text term (also matching PID or protocol). It does not restrict which flows the monitor collects, and it does not change routing rules. **이 프로그램만** affects the rule created from a selected row, not the monitoring scope.
 
 ## TCP, UDP and Burp
 
@@ -131,24 +124,27 @@ The **Filter: process / IP / port** box searches the displayed connection rows u
 
 ### HTTP proxy diagnostics
 
-Events distinguish HTTP CONNECT rejection from socket/stream failures. For example:
+**이벤트 로그** distinguishes HTTP CONNECT rejection, SOCKS5 replies and socket/stream failures. When errors occur, the collapsed log header shows the error count. For example:
 
 | Message | Meaning / next check |
 | --- | --- |
-| `HTTP CONNECT handshake: HTTP 407` | Proxy authentication is required or was rejected; check the listener's supported authentication |
-| `HTTP CONNECT handshake: HTTP 403` | The proxy denied this CONNECT destination; check its rules and allowed ports |
-| `HTTP CONNECT handshake: HTTP 502/503/504` | The proxy could not establish the destination connection; inspect its own event log |
-| `HTTP CONNECT handshake: Peer closed...` | The listener closed before completing the reply; verify proxy type and port |
-| `TCP stream: Socket ConnectionReset (10054)` | A connection was reset during relay; this alone does not identify which peer caused it |
-| `Cannot identify the connection owner` | Windows socket-owner attribution failed; the packet was dropped to preserve routing and loop-prevention checks |
+| `HTTP CONNECT 핸드셰이크 실패: HTTP 407: …` | Proxy authentication is required or was rejected; check the listener's supported authentication |
+| `HTTP CONNECT 핸드셰이크 실패: HTTP 403: …` | The proxy denied this CONNECT destination; check its rules and allowed ports |
+| `HTTP CONNECT 핸드셰이크 실패: HTTP 502: …` (503/504) | The proxy could not establish the destination connection; inspect its own event log |
+| `… 응답이 끝나기 전에 상대가 연결을 닫았습니다 …` | The listener closed before completing the reply; verify proxy type (HTTP/SOCKS5) and port |
+| `SOCKS5 핸드셰이크 실패: 사용자명 또는 비밀번호가 거부되었습니다.` | SOCKS5 username/password rejected |
+| `SOCKS5 핸드셰이크 실패: SOCKS5 서버가 연결을 거부했습니다(코드 N: …)` | SOCKS5 reply code 1–8 with its meaning (ruleset, unreachable, refused, unsupported command, …) |
+| `소켓 오류 ConnectionRefused (10061). …` | The proxy is not listening at that host/port (with `127.0.0.1` it must run on this PC) |
+| `TCP 스트림: 소켓 ConnectionReset (10054).` | A connection was reset during relay; this alone does not identify which peer caused it |
+| `연결의 소유 프로세스를 확인할 수 없어 패킷을 폐기했습니다 …` | Windows socket-owner attribution failed; the packet was dropped to preserve routing and loop-prevention checks |
 
 Only status/socket codes and application-defined text are logged, not proxy response bodies, headers or credentials. The previous generic `IOException / Check the proxy and credentials` message was not proof of an authentication failure. With `127.0.0.1`, the proxy must run on the **same PC** as ProxyWin. Browser-configured HTTP proxying can behave differently: ProxyWin always uses CONNECT to a numeric destination, including for plain HTTP ports.
 
 ## Scope and limits
 
 - Specific-IP rules narrow kernel capture. Destination `*` broadens capture before Windows socket-owner lookup, so process-wide rules can increase CPU usage.
-- Captured TCP/UDP IP fragments are dropped because reassembly is unsupported; fragments cannot always be classified by process or port. SOCKS5 UDP fragmentation is also unsupported.
-- Shared UDP ports and short-lived sockets can make process attribution ambiguous. When required attribution fails, captured packets are dropped instead of silently bypassing the proxy.
+- IP fragments are not reassembled, so their ports and process are unknown. A fragment follows the rules only when its destination and protocol decide the result: no matching TCP/UDP rule or a first unconditional DIRECT rule passes it, an unconditional BLOCK blocks it, and PROXY or port/process-conditioned matches drop it. SOCKS5 UDP fragmentation is also unsupported.
+- Shared UDP ports and short-lived sockets can make process attribution ambiguous. When required attribution (including the process name) fails, new TCP connections and UDP packets are dropped instead of silently bypassing the proxy. Already-established TCP packets are passed, because only a SYN can be redirected.
 - Failed proxy connection/authentication does not fall back to DIRECT.
 - Loopback/self destinations are excluded. General unicast TCP/UDP is the supported scope.
 - Resource bounds include 2,048 concurrent TCP relays, 16,384 TCP mappings and 512 UDP associations. UDP queues are bounded to 32 packets per association and 16 MiB of queued payload globally.
@@ -163,7 +159,7 @@ Profile format version 2 stores explicit actions. Legacy version-1 DIRECT/proxy 
 
 The official driver is SHA-256 pinned, and setup checks its Authenticode signature. Security software can prevent driver loading.
 
-After the last routing/monitoring handle closes, ProxyWin attempts to stop and unload the idle shared WinDivert driver. A running monitor keeps the driver loaded after **Stop**; use **Stop monitor** as well. Active capture/monitor handles from other applications prevent the unload attempt. An unrecognized service path or different driver hash is also left alone. Apply/Start monitor reloads the driver on demand.
+After the last routing/monitoring handle closes, ProxyWin attempts to stop and unload the idle shared WinDivert driver. A running monitor keeps the driver loaded after **■ 적용 중지**; use **■ 모니터 중지** as well. Active capture/monitor handles from other applications prevent the unload attempt. An unrecognized service path or different driver hash is also left alone. Apply/Start monitor reloads the driver on demand.
 
 Before opening its first driver handle, ProxyWin starts one hidden cleanup process. This process waits for the exact GUI process to exit and attempts the same idle-driver cleanup after an ordinary close or termination of the GUI alone. It then exits and writes a status-only `driver-cleanup.txt` beside the profile. Terminating the entire process tree (including this guard), power loss, or OS/security-software refusal cannot guarantee cleanup. No other application is killed, no driver files are deleted, and the application does not disable the shared service. Idle detection is a best-effort snapshot; concurrent external opens can cause Windows to refuse or defer stopping, which is reported instead of forcing termination.
 
@@ -205,7 +201,7 @@ dotnet build tests/ProxyWin.LiveTests/ProxyWin.LiveTests.csproj -c Release
 # Idle shared-driver unload/reload, other-user retention, X and forced exit (UAC)
 ./scripts/Test-Unload.ps1
 
-# Optional live Windows DNS / public GitHub API integration check
+# Optional live Windows DNS integration check
 dotnet run --project tests/ProxyWin.Tests/ProxyWin.Tests.csproj -c Release -- --network-features
 ```
 

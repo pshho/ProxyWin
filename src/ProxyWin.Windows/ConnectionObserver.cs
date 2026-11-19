@@ -28,7 +28,7 @@ public sealed class ConnectionObserver : IAsyncDisposable
         await gate.WaitAsync();
         try
         {
-            if (IsRunning) throw new InvalidOperationException("Monitor is already running.");
+            if (IsRunning) throw new InvalidOperationException("연결 모니터가 이미 실행 중입니다.");
             await StopCore();
             WinDivertNative.VerifyFiles();
             var next = new ObservationSession(WinDivertNative.OpenFlow(onlyProcessId));
@@ -50,7 +50,10 @@ public sealed class ConnectionObserver : IAsyncDisposable
                     if (current.Stopping && error is 232 or 995 or 6) break;
                     throw new Win32Exception(error);
                 }
-                var record = Decode(address);
+                ObservedConnection? record;
+                // 이벤트 하나의 주소 해석 실패로 모니터 전체를 멈추지 않고 그 이벤트만 누락으로 센다.
+                try { record = Decode(address); }
+                catch (IOException) { Interlocked.Increment(ref skipped); continue; }
                 if (record is null || current.Stopping) continue;
                 pending.Enqueue(record);
                 while (pending.Count > 2048 && pending.TryDequeue(out _)) Interlocked.Increment(ref skipped);
@@ -58,7 +61,7 @@ public sealed class ConnectionObserver : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            if (!current.Stopping) LastError = ex is Win32Exception win32 ? $"Monitor stopped: Windows error {win32.NativeErrorCode}" : $"Monitor stopped: {ex.GetType().Name}";
+            if (!current.Stopping) LastError = ex is Win32Exception win32 ? $"연결 모니터 중지됨: Windows 오류 {win32.NativeErrorCode}" : $"연결 모니터 중지됨: {ex.GetType().Name}";
         }
         finally { current.Running = false; current.Handle.Dispose(); }
     }
@@ -76,17 +79,12 @@ public sealed class ConnectionObserver : IAsyncDisposable
             address.FlowProtocol == 6 ? Transport.Tcp : Transport.Udp, (address.Flags & (1u << 18)) != 0);
     }
 
+    // A delayed event must not acquire the name of a later process reusing its PID.
+    // 같은 프로세스의 반복 연결은 (PID, 생성 시각) 캐시로 처리해 이벤트마다 프로세스를 다시 조회하지 않는다.
     private static string? ResolveName(int pid, DateTimeOffset time)
     {
-        try
-        {
-            using var process = Process.GetProcessById(pid);
-            // A delayed event must not acquire the name of a later process reusing its PID.
-            if (process.StartTime.ToUniversalTime() > time.UtcDateTime.AddMilliseconds(5)) return null;
-            var name = process.ProcessName;
-            return name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? name : name + ".exe";
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception or NotSupportedException) { return null; }
+        var name = ProcessNames.FileName(pid, time.UtcDateTime.AddMilliseconds(5));
+        return name is null ? null : name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? name : name + ".exe";
     }
 
     public bool TryRead(out ObservedConnection? connection) => pending.TryDequeue(out connection);

@@ -26,30 +26,30 @@ public static class DriverService
                 {
                     try { acquired = mutex.WaitOne(TimeSpan.FromSeconds(3)); }
                     catch (AbandonedMutexException) { acquired = true; }
-                    if (!acquired) return new(false, "WinDivert retained: driver installation is busy.");
+                    if (!acquired) return new(false, "WinDivert 드라이버 유지: 드라이버 설치 작업이 진행 중입니다.");
                     using var manager = OpenSCManager(null, null, 1);
                     if (manager.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
                     using var service = OpenService(manager, "WinDivert", 4 | 32);
                     if (service.IsInvalid)
                     {
                         var error = Marshal.GetLastWin32Error();
-                        if (error == 1060) return new(true, "WinDivert is not loaded.");
+                        if (error == 1060) return new(true, "WinDivert 드라이버가 로드되어 있지 않습니다.");
                         throw new Win32Exception(error);
                     }
                     var status = Status(service);
-                    if (status.State == 1) return new(true, "WinDivert is stopped.");
-                    if (status.Type != 1 || status.State != 4) return new(false, "WinDivert retained: service is changing state.");
+                    if (status.State == 1) return new(true, "WinDivert 드라이버가 중지되어 있습니다.");
+                    if (status.Type != 1 || status.State != 4) return new(false, "WinDivert 드라이버 유지: 서비스 상태가 바뀌는 중입니다.");
                     // Never stop a different driver that happens to use the same service name.
                     using var key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\WinDivert");
                     var path = (key?.GetValue("ImagePath") as string ?? "").Trim('"');
                     if (path.StartsWith(@"\??\", StringComparison.Ordinal)) path = path[4..];
                     if (!Path.IsPathFullyQualified(path) || !Path.GetFileName(path).Equals("WinDivert64.sys", StringComparison.OrdinalIgnoreCase))
-                        return new(false, "WinDivert retained: unrecognized driver service path.");
+                        return new(false, "WinDivert 드라이버 유지: 알 수 없는 드라이버 서비스 경로입니다.");
                     using (var file = File.OpenRead(path))
                         if (!Convert.ToHexString(SHA256.HashData(file)).Equals(WinDivertNative.DriverHash, StringComparison.OrdinalIgnoreCase))
-                            return new(false, "WinDivert retained: another driver version is installed.");
+                            return new(false, "WinDivert 드라이버 유지: 다른 버전의 드라이버가 설치되어 있습니다.");
                     if (WinDivertNative.HasActiveHandles())
-                        return new(false, "WinDivert retained: capture or monitoring is still in use.");
+                        return new(false, "WinDivert 드라이버 유지: 다른 캡처/모니터가 아직 사용 중입니다.");
                     // Inspection handles must be closed before asking Windows to unload.
                     // Windows may still refuse if another client opens during this interval.
                     if (!ControlService(service, 1, out status))
@@ -59,13 +59,13 @@ public static class DriverService
                     }
                     var deadline = Environment.TickCount64 + 3000;
                     while ((status = Status(service)).State != 1 && Environment.TickCount64 < deadline) Thread.Sleep(50);
-                    return status.State == 1 ? new(true, "WinDivert unloaded.") : new(false, "WinDivert stop is pending; another handle may still be open.");
+                    return status.State == 1 ? new(true, "WinDivert 드라이버를 내렸습니다.") : new(false, "WinDivert 중지 대기 중입니다. 다른 핸들이 아직 열려 있을 수 있습니다.");
                 }
                 finally { if (acquired) mutex.ReleaseMutex(); }
             }
-            catch (Win32Exception ex) { return new(false, $"WinDivert unload unavailable: Windows error {ex.NativeErrorCode}. Driver left installed."); }
+            catch (Win32Exception ex) { return new(false, $"WinDivert 드라이버를 내릴 수 없습니다: Windows 오류 {ex.NativeErrorCode}. 드라이버는 설치된 상태로 둡니다."); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
-            { return new(false, $"WinDivert retained: {ex.GetType().Name} while verifying the service."); }
+            { return new(false, $"WinDivert 드라이버 유지: 서비스 확인 중 {ex.GetType().Name} 발생."); }
         }
     }
 

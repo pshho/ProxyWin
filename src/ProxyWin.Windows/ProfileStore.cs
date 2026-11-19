@@ -22,7 +22,7 @@ public sealed class ProfileStore
         var bytes = Protect(File.ReadAllBytes(FilePath), decrypt: true);
         try
         {
-            var profile = JsonSerializer.Deserialize<Profile>(bytes) ?? throw new FormatException("Profile is empty.");
+            var profile = JsonSerializer.Deserialize<Profile>(bytes) ?? throw new FormatException("설정 파일이 비어 있습니다.");
             RuleParser.Validate(profile);
             profile.Version = 2;
             return profile;
@@ -65,7 +65,7 @@ public sealed class ProfileStore
             var success = decrypt
                 ? CryptUnprotectData(ref blob, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 1, out output)
                 : CryptProtectData(ref blob, "ProxyWin", IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 1, out output);
-            if (!success) throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot read or save the Windows-protected profile.");
+            if (!success) throw new Win32Exception(Marshal.GetLastWin32Error(), "Windows 보호(DPAPI) 설정 파일을 읽거나 저장할 수 없습니다.");
             var result = new byte[output.Size];
             Marshal.Copy(output.Data, result, 0, result.Length);
             return result;

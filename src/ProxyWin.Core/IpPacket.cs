@@ -12,6 +12,20 @@ public readonly record struct IpPacket(int Length, int TransportOffset, int Payl
     public FlowKey Key(ReadOnlySpan<byte> packet) => new(Source, BinaryPrimitives.ReadUInt16BigEndian(packet[TransportOffset..]),
         Destination, BinaryPrimitives.ReadUInt16BigEndian(packet[(TransportOffset + 2)..]), Udp);
 
+    // 파싱에 실패한 패킷이라도 IP 헤더의 길이 필드로 프레임 경계를 알 수 있으면
+    // 배치의 다음 패킷을 계속 처리할 수 있다. (IPv6 jumbogram처럼 길이를 모르면 false)
+    public static bool TryGetFrameLength(ReadOnlySpan<byte> bytes, out int length)
+    {
+        length = 0;
+        if (bytes.Length >= 20 && (bytes[0] >> 4) == 4) length = BinaryPrimitives.ReadUInt16BigEndian(bytes[2..]);
+        else if (bytes.Length >= 40 && (bytes[0] >> 4) == 6 && BinaryPrimitives.ReadUInt16BigEndian(bytes[4..]) is > 0 and var payload) length = 40 + payload;
+        if (length < 20 || length > bytes.Length) { length = 0; return false; }
+        return true;
+    }
+
+    // IPv4는 IP 헤더 20바이트, IPv6는 payload length(16비트)에 UDP 헤더 8바이트가 포함된다.
+    public static int MaxUdpPayload(bool ipv4) => ipv4 ? 65507 : 65527;
+
     public static bool TryParse(ReadOnlySpan<byte> bytes, out IpPacket packet)
     {
         packet = default;
@@ -67,8 +81,10 @@ public readonly record struct IpPacket(int Length, int TransportOffset, int Payl
     public void Rewrite(Span<byte> bytes, IPAddress source, int sourcePort, IPAddress destination, int destinationPort)
     {
         var ipv4 = (bytes[0] >> 4) == 4;
-        source.GetAddressBytes().CopyTo(bytes[(ipv4 ? 12 : 8)..]);
-        destination.GetAddressBytes().CopyTo(bytes[(ipv4 ? 16 : 24)..]);
+        // 패킷마다 byte[]를 만들지 않도록 주소를 패킷 버퍼에 직접 쓴다.
+        if (!source.TryWriteBytes(bytes[(ipv4 ? 12 : 8)..], out var sourceLength) || sourceLength != (ipv4 ? 4 : 16)
+            || !destination.TryWriteBytes(bytes[(ipv4 ? 16 : 24)..], out var destinationLength) || destinationLength != (ipv4 ? 4 : 16))
+            throw new ArgumentException("Address family differs from the packet.");
         BinaryPrimitives.WriteUInt16BigEndian(bytes[TransportOffset..], (ushort)sourcePort);
         BinaryPrimitives.WriteUInt16BigEndian(bytes[(TransportOffset + 2)..], (ushort)destinationPort);
     }
@@ -77,7 +93,7 @@ public readonly record struct IpPacket(int Length, int TransportOffset, int Payl
     {
         var ipv4 = flow.LocalAddress.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork;
         var header = ipv4 ? 20 : 40;
-        if (payload.Length > 65507) throw new ArgumentOutOfRangeException(nameof(payload));
+        if (payload.Length > MaxUdpPayload(ipv4)) throw new ArgumentOutOfRangeException(nameof(payload));
         var bytes = new byte[header + 8 + payload.Length];
         if (ipv4)
         {

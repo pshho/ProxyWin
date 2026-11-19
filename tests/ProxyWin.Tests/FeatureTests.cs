@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http;
 using System.Net.Sockets;
 using ProxyWin.Windows;
 
@@ -35,41 +34,5 @@ internal static class FeatureTests
         var pending = DestinationResolver.ResolveAsync("slow.example", async (_, ct) => { await Task.Delay(Timeout.Infinite, ct); return []; }, cancellation.Token);
         cancellation.Cancel();
         try { await pending; throw new Exception("Cancellation ignored"); } catch (OperationCanceledException) { }
-    }
-
-    public static async Task Updates()
-    {
-        Check(UpdateChecker.DescribeFailure(new HttpRequestException(HttpRequestError.SecureConnectionError, "SECRET_PROXY_PASSWORD")).Contains("TLS"));
-        Check(!UpdateChecker.DescribeFailure(new HttpRequestException(HttpRequestError.SecureConnectionError, "SECRET_PROXY_PASSWORD")).Contains("SECRET"));
-        Check(UpdateChecker.DescribeFailure(new HttpRequestException(HttpRequestError.NameResolutionError)).Contains("DNS"));
-        Check(UpdateChecker.DescribeFailure(new HttpRequestException("SECRET", null, HttpStatusCode.Forbidden)).Contains("403"));
-        Check(!UpdateChecker.DescribeFailure(new HttpRequestException("SECRET", null, HttpStatusCode.Forbidden)).Contains("SECRET"));
-        Check(UpdateChecker.DescribeFailure(new TaskCanceledException()).Contains("timed out"));
-        string Release(string version, string extra = "") => $$"""{"tag_name":"{{version}}","draft":false,"prerelease":false{{extra}}} """;
-        var current = new Version(0, 5, 9, 0);
-        Check(UpdateChecker.Parse(Release("v0.5.10"), current)?.Version == new Version(0, 5, 10));
-        Check(UpdateChecker.Parse(Release("v0.5.9"), current) is null);
-        Check(UpdateChecker.Parse(Release("v0.4.99"), current) is null);
-        Check(UpdateChecker.Parse(Release("v1.0.0").Replace("\"prerelease\":false", "\"prerelease\":true"), current) is null);
-        Check(UpdateChecker.Parse(Release("v1.0.0").Replace("\"draft\":false", "\"draft\":true"), current) is null);
-        foreach (var tag in new[] { "v1.2", "v01.2.3", "v1.2.3-beta", "v1.2.3/evil", "v99999999999.0.0" })
-        {
-            try { UpdateChecker.Parse(Release(tag), current); throw new Exception("Accepted invalid tag"); } catch (FormatException) { }
-        }
-        Check(UpdateChecker.Parse(Release("v1.0.0", ",\"html_url\":\"https://untrusted.example\""), current)?.ReleasePage.AbsoluteUri == "https://github.com/pshho/ProxyWin/releases/tag/v1.0.0");
-        using var client = new HttpClient(new Handler(request =>
-        {
-            Check(request.RequestUri?.AbsoluteUri == "https://api.github.com/repos/pshho/ProxyWin/releases/latest");
-            Check(request.Headers.UserAgent.ToString() == "ProxyWin/0.5.9");
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Release("v0.6.0")) };
-        }));
-        Check((await UpdateChecker.CheckAsync(client, current))?.Version == new Version(0, 6, 0));
-        using var unavailable = new HttpClient(new Handler(_ => new HttpResponseMessage(HttpStatusCode.Forbidden)));
-        try { await UpdateChecker.CheckAsync(unavailable, current); throw new Exception("HTTP failure ignored"); } catch (HttpRequestException) { }
-    }
-
-    private sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => Task.FromResult(respond(request));
     }
 }

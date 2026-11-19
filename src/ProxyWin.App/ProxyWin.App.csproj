@@ -5,7 +5,7 @@
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>ProxyWin</AssemblyName>
-    <Version>0.5.0</Version>
+    <Version>0.6.0</Version>
     <ApplicationIcon>Assets/ProxyWin.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>

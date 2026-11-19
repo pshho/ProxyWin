@@ -12,18 +12,18 @@ public static class DriverCleanupGuard
         var eventName = @"Local\ProxyWin.Cleanup." + Guid.NewGuid().ToString("N");
         using var ready = new EventWaitHandle(false, EventResetMode.ManualReset, eventName);
         using var parent = Process.GetCurrentProcess();
-        var executable = Environment.ProcessPath ?? throw new IOException("Cannot locate the application executable.");
+        var executable = Environment.ProcessPath ?? throw new IOException("프로그램 실행 파일 위치를 찾을 수 없습니다.");
         var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true };
         if (Path.GetFileNameWithoutExtension(executable).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
             start.ArgumentList.Add(Assembly.GetEntryAssembly()!.Location);
         foreach (var argument in new[] { "--driver-cleanup", parent.Id.ToString(CultureInfo.InvariantCulture),
             parent.StartTime.ToUniversalTime().Ticks.ToString(CultureInfo.InvariantCulture), eventName, Path.Combine(directory, "driver-cleanup.txt") })
             start.ArgumentList.Add(argument);
-        using var child = Process.Start(start) ?? throw new IOException("Cannot start driver cleanup guard.");
+        using var child = Process.Start(start) ?? throw new IOException("드라이버 정리 도우미를 시작할 수 없습니다.");
         if (!ready.WaitOne(TimeSpan.FromSeconds(10)))
         {
             if (!child.HasExited) { child.Kill(); child.WaitForExit(3000); }
-            throw new IOException("Driver cleanup guard did not start. Check the application files.");
+            throw new IOException("드라이버 정리 도우미가 시작되지 않았습니다. 프로그램 파일이 온전한지 확인하세요.");
         }
     });
 

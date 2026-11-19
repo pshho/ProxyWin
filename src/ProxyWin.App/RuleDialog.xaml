@@ -1,21 +1,29 @@
 <Window x:Class="ProxyWin.App.RuleDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Rule" Width="450" Height="440" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Style="{StaticResource {x:Type Window}}">
-  <Grid Margin="16"><Grid.RowDefinitions><RowDefinition /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        Title="규칙 편집" Width="480" SizeToContent="Height" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Style="{StaticResource {x:Type Window}}">
+  <Grid Margin="16"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
     <StackPanel x:Name="FieldsPanel">
-      <TextBlock Text="Rule" FontSize="18" FontWeight="Bold" />
-      <StackPanel Orientation="Horizontal" Margin="0,9,0,4"><TextBlock Text="Destinations" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Destination help" ToolTip="Separate IPs, CIDRs or domains with commas. Domains become their current IPv4/IPv6 addresses when saved; re-enter a domain to refresh. Use * alone for all destinations." /></StackPanel><TextBox x:Name="DestinationsBox" MaxLength="8192" ToolTip="IP, CIDR, domain or *. Domains are converted to IPs on save. Separate entries with commas." />
+      <TextBlock Text="규칙 편집" FontSize="18" FontWeight="Bold" />
+      <TextBlock Text="아래 조건이 모두 맞는 트래픽에 '동작'을 적용합니다." Style="{StaticResource Note}" Margin="0,3,0,0" />
+      <StackPanel Orientation="Horizontal" Margin="0,10,0,4"><TextBlock Text="대상 (IP · 도메인 · CIDR)" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="대상 도움말" ToolTip="여러 개는 쉼표로 구분합니다. 예: 203.0.113.10, 10.0.0.0/8, api.example.com&#x0a;모든 대상은 * 하나만 입력합니다.&#x0a;도메인은 저장하는 순간의 IP로 바뀌어 저장되며 자동 갱신되지 않습니다(다시 입력하면 갱신)." /></StackPanel>
+      <TextBox x:Name="DestinationsBox" MaxLength="8192" Tag="예: 203.0.113.10, api.example.com · 모든 대상은 *" />
       <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
-        <StackPanel Margin="0,0,8,0"><StackPanel Orientation="Horizontal" Margin="0,9,0,4"><TextBlock Text="Ports" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Ports help" ToolTip="Separate ports or ranges with commas: 80, 443, 8000-9000. Use * alone for all ports." /></StackPanel><TextBox x:Name="PortsBox" MaxLength="4096" ToolTip="80, 443, 8000-9000" /></StackPanel>
-        <StackPanel Grid.Column="1"><TextBlock Text="Protocol" Style="{StaticResource Label}" /><ComboBox x:Name="NetworkBox"><ComboBoxItem Content="TCP" /><ComboBoxItem Content="UDP" /><ComboBoxItem Content="TCP + UDP" /></ComboBox></StackPanel>
+        <StackPanel Margin="0,0,8,0"><StackPanel Orientation="Horizontal" Margin="0,9,0,4"><TextBlock Text="포트" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="포트 도움말" ToolTip="포트나 범위를 쉼표로 구분합니다: 80, 443, 8000-9000&#x0a;모든 포트는 * 하나만 입력합니다." /></StackPanel><TextBox x:Name="PortsBox" MaxLength="4096" Tag="예: 443 · 모든 포트 *" /></StackPanel>
+        <StackPanel Grid.Column="1"><StackPanel Orientation="Horizontal" Margin="0,9,0,4"><TextBlock Text="프로토콜" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="프로토콜 도움말" ToolTip="잘 모르겠으면 TCP. UDP는 SOCKS5 서버로만 보낼 수 있습니다." /></StackPanel><ComboBox x:Name="NetworkBox"><ComboBoxItem Content="TCP" /><ComboBoxItem Content="UDP" /><ComboBoxItem Content="TCP + UDP" /></ComboBox></StackPanel>
       </Grid>
-      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="105" /><ColumnDefinition /></Grid.ColumnDefinitions>
-        <StackPanel Margin="0,0,8,0"><TextBlock Text="Action" Style="{StaticResource Label}" /><ComboBox x:Name="ActionBox" SelectionChanged="ActionChanged"><ComboBoxItem Content="DIRECT" /><ComboBoxItem Content="PROXY" /><ComboBoxItem Content="BLOCK" /></ComboBox></StackPanel>
-        <StackPanel Grid.Column="1"><TextBlock Text="Proxy server" Style="{StaticResource Label}" /><ComboBox x:Name="TargetBox" DisplayMemberPath="Name" SelectedValuePath="Id" /></StackPanel>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="160" /><ColumnDefinition /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,8,0"><StackPanel Orientation="Horizontal" Margin="0,9,0,4"><TextBlock Text="동작" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="동작 도움말" ToolTip="PROXY: 오른쪽에서 고른 서버로 보냄&#x0a;DIRECT: 프록시 없이 그대로 보냄(예외용)&#x0a;BLOCK: 차단" /></StackPanel><ComboBox x:Name="ActionBox" SelectionChanged="ActionChanged"><ComboBoxItem Content="DIRECT · 그대로" /><ComboBoxItem Content="PROXY · 프록시로" /><ComboBoxItem Content="BLOCK · 차단" /></ComboBox></StackPanel>
+        <StackPanel Grid.Column="1"><TextBlock Text="프록시 서버 (PROXY일 때)" Style="{StaticResource Label}" /><ComboBox x:Name="TargetBox" DisplayMemberPath="Summary" SelectedValuePath="Id" /></StackPanel>
       </Grid>
-      <StackPanel Orientation="Horizontal" Margin="0,9,0,4"><TextBlock Text="Process" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="Process help" ToolTip="Select an exact executable name. Blank means all processes; this is not a PID filter. Search text is only for finding a name, not a wildcard process rule." /></StackPanel><ComboBox x:Name="ProcessBox" IsEditable="True" IsTextSearchEnabled="False" StaysOpenOnEdit="True" MaxDropDownHeight="220" DropDownOpened="OpenProcessPicker" ToolTip="Type to search. Select a full executable name or enter one manually." />
-      <CheckBox x:Name="EnabledBox" Content="Enabled" Margin="0,12,0,0" />
-      <TextBlock Text="All conditions must match. First matching rule wins." FontSize="10" Foreground="{StaticResource Muted}" Margin="0,9,0,0" />
+      <StackPanel Orientation="Horizontal" Margin="0,9,0,4"><TextBlock Text="프로그램 (선택)" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Style="{StaticResource Help}" AutomationProperties.Name="프로그램 도움말" ToolTip="실행 파일 이름을 입력하거나 목록에서 고르세요(일부만 입력하면 검색). 비우면 모든 프로그램.&#x0a;같은 이름의 모든 프로세스에 적용됩니다(PID 단위 아님). 경로나 와일드카드는 쓸 수 없습니다." /></StackPanel>
+      <Grid>
+        <ComboBox x:Name="ProcessBox" IsEditable="True" IsTextSearchEnabled="False" StaysOpenOnEdit="True" MaxDropDownHeight="220" DropDownOpened="OpenProcessPicker" ToolTip="이름 일부를 입력하면 실행 중인 프로그램에서 찾습니다." />
+        <TextBlock Text="비우면 모든 프로그램 · 예: chrome.exe" Foreground="{StaticResource Hint}" Margin="9,0,26,0" VerticalAlignment="Center" IsHitTestVisible="False">
+          <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=ProcessBox}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+        </TextBlock>
+      </Grid>
+      <CheckBox x:Name="EnabledBox" Content="이 규칙 사용" Margin="0,12,0,0" />
+      <TextBlock Text="모든 조건이 맞아야 적용되며, 목록에서 위에 있는 규칙이 먼저 적용됩니다." Style="{StaticResource Note}" Margin="0,9,0,0" />
     </StackPanel>
-    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="Cancel" IsCancel="True" Margin="0,0,6,0" /><Button x:Name="SaveButton" Content="Save" Style="{StaticResource Primary}" IsDefault="True" Click="Save" /></StackPanel>
+    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0"><Button Content="취소" IsCancel="True" Margin="0,0,6,0" MinWidth="72" /><Button x:Name="SaveButton" Content="저장" Style="{StaticResource Primary}" IsDefault="True" Click="Save" MinWidth="72" /></StackPanel>
   </Grid>
 </Window>

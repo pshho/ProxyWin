@@ -11,7 +11,7 @@ internal static class HttpFailureTests
         var reset = RelayDiagnostics.Describe(new IOException("SECRET_BODY", new SocketException((int)SocketError.ConnectionReset)));
         if (!reset.Contains("ConnectionReset") || reset.Contains("SECRET")) throw new Exception("Socket cause lost or sensitive message exposed");
         if (RelayDiagnostics.Describe(new IOException("SECRET_BODY")).Contains("SECRET")) throw new Exception("Untrusted exception text exposed");
-        if (!RelayDiagnostics.Describe(new ConnectionOwnerException()).Contains("connection owner")) throw new Exception("Local process attribution failure hidden");
+        if (!RelayDiagnostics.Describe(new ConnectionOwnerException()).Contains("소유 프로세스")) throw new Exception("Local process attribution failure hidden");
         foreach (var status in new[] { 403, 407, 502 })
         {
             var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();

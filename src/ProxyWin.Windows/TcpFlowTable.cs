@@ -16,6 +16,7 @@ internal sealed class TcpFlow(FlowKey key, CapturePlan.Entry route, int virtualP
 
 internal sealed class TcpFlowTable
 {
+    internal const int Capacity = 16384;
     private readonly object sync = new();
     private readonly Dictionary<FlowKey, TcpFlow> byOriginal = [];
     private readonly Dictionary<int, TcpFlow> byVirtual = [];
@@ -26,7 +27,7 @@ internal sealed class TcpFlowTable
     {
         lock (sync)
         {
-            if (byVirtual.Count >= 16384) return null;
+            if (byVirtual.Count >= Capacity && !ReclaimClosed()) return null;
             for (var attempt = 0; attempt < 55535; attempt++)
             {
                 cursor = cursor == 65535 ? 10000 : cursor + 1;
@@ -42,10 +43,61 @@ internal sealed class TcpFlowTable
         lock (sync)
         {
             var flow = byVirtual.GetValueOrDefault(peer.Port);
-            if (flow is null || flow.Accepted || !flow.Key.RemoteAddress.Equals(peer.Address) || !flow.Key.LocalAddress.Equals(local.Address)) return null;
+            if (flow is null || flow.Accepted || !SameAddress(flow.Key.RemoteAddress, peer.Address) || !SameAddress(flow.Key.LocalAddress, local.Address)) return null;
             flow.Accepted = true; return flow;
         }
     }
+    // 닫힌 흐름은 닫힌 순서대로 큐에 쌓아, 상한에 닿았을 때 전체를 훑지 않고 앞에서부터 회수한다.
+    private readonly Queue<TcpFlow> closed = new();
+    // 리스너의 FIN/ACK 재전송이 변환되도록 닫힌 직후 흐름은 최소 이 시간 동안 남겨 둔다.
+    internal const long MinimumClosedRetention = 5000;
+
+    public void MarkClosed(TcpFlow flow) => MarkClosed(flow, Environment.TickCount64);
+    internal void MarkClosed(TcpFlow flow, long closedAt)
+    {
+        lock (sync)
+        {
+            if (flow.Closed != 0) return;
+            Volatile.Write(ref flow.Closed, closedAt);
+            closed.Enqueue(flow);
+        }
+    }
+
+    // 같은 4-튜플로 새 연결(시퀀스가 다른 SYN)이 시작되면 옛 흐름의 원래 주소 매핑만 끊는다.
+    // 가상 포트 쪽 매핑은 리스너의 늦은 FIN/ACK 역변환을 위해 그대로 둔다.
+    public void Forget(FlowKey key, TcpFlow flow)
+    {
+        lock (sync) if (byOriginal.GetValueOrDefault(key) == flow) byOriginal.Remove(key);
+    }
+
+    // 짧은 연결이 몰려 상한에 닿으면 새 SYN을 버리는 대신 가장 오래 닫혀 있던 흐름부터 1/8씩 회수한다.
+    private bool ReclaimClosed()
+    {
+        var now = Environment.TickCount64; var reclaimed = 0;
+        while (reclaimed < Capacity / 8 && closed.TryPeek(out var flow))
+        {
+            if (byVirtual.GetValueOrDefault(flow.VirtualPort) != flow) { closed.Dequeue(); continue; }
+            if (now - flow.Closed < MinimumClosedRetention) break;
+            closed.Dequeue(); Remove(flow); reclaimed++;
+        }
+        return reclaimed > 0;
+    }
+
+    private void Remove(TcpFlow flow)
+    {
+        byVirtual.Remove(flow.VirtualPort);
+        if (byOriginal.GetValueOrDefault(flow.Key) == flow) byOriginal.Remove(flow.Key);
+    }
+
+    // 패킷에서 만든 주소(ScopeId 0)와 accept된 소켓 주소(링크로컬이면 ScopeId 포함)를 바이트로만 비교한다.
+    internal static bool SameAddress(IPAddress a, IPAddress b)
+    {
+        if (a.AddressFamily != b.AddressFamily) return false;
+        Span<byte> left = stackalloc byte[16], right = stackalloc byte[16];
+        a.TryWriteBytes(left, out var leftLength); b.TryWriteBytes(right, out var rightLength);
+        return left[..leftLength].SequenceEqual(right[..rightLength]);
+    }
+
     public void Sweep()
     {
         var now = Environment.TickCount64;
@@ -53,10 +105,9 @@ internal sealed class TcpFlowTable
         {
             foreach (var flow in byVirtual.Values.Where(f => (Volatile.Read(ref f.Closed) != 0 && now - Volatile.Read(ref f.Closed) > 120000)
                 || (!f.Accepted && now - Volatile.Read(ref f.LastSeen) > 30000)).ToArray())
-            {
-                byVirtual.Remove(flow.VirtualPort);
-                if (byOriginal.GetValueOrDefault(flow.Key) == flow) byOriginal.Remove(flow.Key);
-            }
+                Remove(flow);
+            // 이미 지워진 흐름은 큐 앞에서 정리해 큐가 계속 커지지 않게 한다.
+            while (closed.TryPeek(out var head) && byVirtual.GetValueOrDefault(head.VirtualPort) != head) closed.Dequeue();
         }
     }
 }
